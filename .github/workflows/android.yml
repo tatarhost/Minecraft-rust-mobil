@@ -53,12 +53,13 @@ jobs:
         run: python3 scripts/prepare-android-engine.py upstream
 
       - name: Build the Rust game engine for Android
+        working-directory: upstream
         shell: bash
         run: |
           set -euo pipefail
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-          cargo ndk -t arm64-v8a --platform 26 -o android-app/app/src/main/jniLibs build --manifest-path android-engine/Cargo.toml --release --lib
+          cargo ndk -t arm64-v8a --platform 26 -o ../android-app/app/src/main/jniLibs build -p horizon-android-engine --release --lib
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
