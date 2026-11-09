@@ -361,7 +361,8 @@ fn open_android_uri(uri: &str) {
                 return;
             }
         };
-        let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+        let result = (|| -> jni::errors::Result<()> {
+            let mut env = vm.attach_current_thread()?;
             use jni::objects::{JObject, JValue};
             let raw_activity = app.activity_as_ptr() as jni::sys::jobject;
             // AndroidApp owns this global reference; JObject is only a borrowed wrapper here.
@@ -388,7 +389,7 @@ fn open_android_uri(uri: &str) {
                 &[JValue::Object(&intent)],
             )?;
             Ok(())
-        });
+        })();
         if let Err(error) = result {
             log::error!("Horizon: could not open URI {uri}: {error}");
         }
