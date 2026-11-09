@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Horizon Mobile debug APK
+    name: Build Horizon Mobile Rust game APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout mobile port and pinned engine source
@@ -39,7 +39,26 @@ jobs:
             exit 1
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Set up Rust for Android arm64
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 3.5.1 --locked
+
+      - name: Adapt the pinned Rust game client for Android
+        run: python3 scripts/prepare-android-engine.py upstream
+
+      - name: Build the Rust game engine for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          cargo ndk -t arm64-v8a --platform 26 -o android-app/app/src/main/jniLibs build --manifest-path android-engine/Cargo.toml --release --lib
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -52,7 +71,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: horizon-mobile-debug-apk
+          name: horizon-mobile-rust-engine-debug-apk
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
