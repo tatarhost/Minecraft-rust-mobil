@@ -1075,10 +1075,11 @@ public final class MainActivity extends Activity {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key);
         byte[] encrypted = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+        boolean persisted = getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
                 .putString("data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .apply();
+                .commit();
+        if (!persisted) throw new IllegalStateException("Could not persist the encrypted CHEATLAB session.");
     }
 
     private String readEncrypted() {
@@ -1114,7 +1115,9 @@ public final class MainActivity extends Activity {
     }
 
     private void clearEncrypted() {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
+        // Commit before leaving the screen so a just-requested logout cannot
+        // resurrect the old credential after process death.
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
     }
 
     private String readAll(InputStream stream) throws Exception {
