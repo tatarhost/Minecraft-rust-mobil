@@ -1,0 +1,101 @@
+name: HORIZON Java Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/horizon-java-android.yml"
+      - "scripts/brand-amethyst.py"
+      - "MOBILE_PORT_STATUS.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build HORIZON Java launcher (Android arm64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Amethyst Android runtime
+        uses: actions/checkout@v4
+        with:
+          repository: AngelAuraMC/Amethyst-Android
+          ref: v3_openjdk
+          submodules: recursive
+          path: amethyst
+
+      - name: Checkout HORIZON branding script
+        uses: actions/checkout@v4
+        with:
+          repository: tatarhost/Minecraft-rust-mobil
+          ref: main
+          sparse-checkout: scripts/brand-amethyst.py
+          path: horizon-meta
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          if [[ -z "$SDKMANAGER" ]]; then
+            echo "::error::Android sdkmanager was not found"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "ndk;27.3.13750724"
+
+      - name: Download OpenJDK 8 mobile runtime
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          path: amethyst/app_pojavlauncher/src/main/assets/components/jre
+          workflow_conclusion: completed
+          repo: AngelAuraMC/angelauramc-openjdk-build
+          branch: buildjre8
+          name: jre8-pojav
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+          gradle-version: "9.6.1"
+
+      - name: Apply HORIZON branding
+        working-directory: amethyst
+        run: python3 ../horizon-meta/scripts/brand-amethyst.py
+
+      - name: Generate language list
+        working-directory: amethyst
+        run: |
+          chmod +x scripts/languagelist_updater.sh
+          ./scripts/languagelist_updater.sh
+
+      - name: Build Android launcher APK
+        working-directory: amethyst
+        run: gradle --no-daemon :app_pojavlauncher:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="amethyst/app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk"
+          test -s "$APK"
+          sha256sum "$APK" | tee amethyst/horizon-java-debug.sha256
+
+      - name: Upload HORIZON Java APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-java-android-arm64-debug-apk
+          path: |
+            amethyst/app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk
+            amethyst/horizon-java-debug.sha256
+          if-no-files-found: error
+          retention-days: 14
