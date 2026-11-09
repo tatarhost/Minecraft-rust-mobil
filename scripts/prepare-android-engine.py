@@ -17,48 +17,6 @@ def replace_once(relative, old, new):
         raise SystemExit(f"{relative}: expected one patch anchor, found {count}: {old[:80]!r}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-replace_once(
-    "crates/horizon-client/src/lib.rs",
-    "#![forbid(unsafe_code)]\n",
-    """#![forbid(unsafe_code)]
-
-// Android embeds the existing game loop in the client library.
-#[cfg(target_os = "android")]
-extern crate self as horizon_client;
-#[cfg(target_os = "android")]
-#[path = "game.rs"]
-mod android_game;
-""",
-)
-
-lib_path = root / "crates/horizon-client/src/lib.rs"
-lib_text = lib_path.read_text(encoding="utf-8")
-if "pub fn run_android(app:" not in lib_text:
-    lib_text += r'''
-
-/// Start the real Horizon client from Android NativeActivity.
-#[cfg(target_os = "android")]
-pub fn run_android(app: winit::platform::android::activity::AndroidApp) -> Result<()> {
-    let app_data = app.internal_data_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "Android app-private data path is unavailable")
-    })?;
-    let game_home = app_data.join("horizon").join("game");
-    std::fs::create_dir_all(&game_home)?;
-    std::fs::create_dir_all(app_data.join("horizon").join("resources"))?;
-    std::env::set_current_dir(&game_home)?;
-
-    logging::set_game_home(game_home.clone());
-    android_game::set_android_app(app);
-    horizon_threads::configure_allocator();
-    telemetry::mark_start();
-    logging::init(&game_home, "Render thread");
-    log::info!("Horizon Android client starting");
-    crash::install(game_home, "client");
-    android_game::run()
-}
-'''
-    lib_path.write_text(lib_text, encoding="utf-8")
-
 game_file = "crates/horizon-client/src/game.rs"
 replace_once(
     game_file,
