@@ -3,6 +3,7 @@ package dev.horizon.mobile;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -10,6 +11,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -666,16 +668,127 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != PICK_MINECRAFT_FOLDER || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
-        if (uri == null) return;
+        if (uri == null) {
+            showFolderResult("Папка не выбрана", "Android не передал адрес выбранной папки. Попробуй выбрать распакованную папку ещё раз.");
+            return;
+        }
         try {
             int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            getContentResolver().takePersistableUriPermission(uri, flags);
-            getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("minecraft_tree", uri.toString()).apply();
-            Toast.makeText(this, "Папка Minecraft сохранена на устройстве.", Toast.LENGTH_LONG).show();
+            if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+                getContentResolver().takePersistableUriPermission(uri, flags);
+            }
+            FolderCheck check = inspectMinecraftFolder(uri);
+            if (!check.valid) {
+                showFolderResult("Это не папка Minecraft 26.3", check.message
+                        + "\n\nВыбери именно распакованную .minecraft, внутри которой находятся versions, libraries и assets. ZIP-файл выбирать нельзя.");
+                return;
+            }
+            getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit()
+                    .putString("minecraft_tree", uri.toString())
+                    .putString("minecraft_folder_check", check.message)
+                    .apply();
+            showFolderResult("Папка распознана", check.message
+                    + "\n\nВажно: это пока только проверка доступа. Импорт и преобразование файлов в формат Rust-клиента ещё не реализованы, поэтому запуск игры после выбора пока не заработает.");
             renderPage();
         } catch (Exception error) {
-            Toast.makeText(this, "Android не выдал постоянный доступ к этой папке.", Toast.LENGTH_LONG).show();
+            showFolderResult("Не удалось прочитать папку", "Android не предоставил доступ к содержимому: " + safeMessage(error)
+                    + "\n\nРаспакуй ZIP в обычную папку во внутренней памяти и выбери её через системное окно.");
         }
+    }
+
+    private static final class FolderCheck {
+        final boolean valid;
+        final String message;
+        FolderCheck(boolean valid, String message) {
+            this.valid = valid;
+            this.message = message;
+        }
+    }
+
+    private FolderCheck inspectMinecraftFolder(Uri treeUri) throws Exception {
+        String treeId = DocumentsContract.getTreeDocumentId(treeUri);
+        Uri rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeId);
+        java.util.Set<String> rootNames = queryChildNames(treeUri, rootUri);
+        Uri minecraftRoot = rootUri;
+        if (!(rootNames.contains("versions") && rootNames.contains("libraries") && rootNames.contains("assets"))) {
+            String nested = null;
+            for (String candidate : new String[]{".minecraft", "minecraft"}) {
+                if (rootNames.contains(candidate)) { nested = candidate; break; }
+            }
+            if (nested != null) {
+                Uri nestedUri = DocumentsContract.buildDocumentUriUsingTree(treeUri,
+                        DocumentsContract.getDocumentId(buildChildUri(treeUri, rootUri, nested)));
+                java.util.Set<String> nestedNames = queryChildNames(treeUri, nestedUri);
+                if (nestedNames.contains("versions") && nestedNames.contains("libraries") && nestedNames.contains("assets")) {
+                    minecraftRoot = nestedUri;
+                    rootNames = nestedNames;
+                }
+            }
+        }
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        for (String required : new String[]{"versions", "libraries", "assets"}) {
+            if (!rootNames.contains(required)) missing.add(required);
+        }
+        if (!missing.isEmpty()) {
+            return new FolderCheck(false, "Не найдены папки: " + android.text.TextUtils.join(", ", missing)
+                    + ". В выбранной папке должны лежать versions, libraries и assets.");
+        }
+        Uri versionsUri = buildChildUri(treeUri, minecraftRoot, "versions");
+        java.util.Set<String> versionNames = queryChildNames(treeUri, versionsUri);
+        if (!versionNames.contains("26.3")) {
+            return new FolderCheck(false, "Папки versions, libraries и assets найдены, но в versions нет папки 26.3. "
+                    + "Текущий Rust-клиент поддерживает только Minecraft 26.3.");
+        }
+        return new FolderCheck(true, "Найдены папки versions, libraries и assets; версия 26.3 обнаружена. Доступ к папке проверен.");
+    }
+
+    private Uri buildChildUri(Uri treeUri, Uri parentUri, String childName) throws Exception {
+        for (String name : queryChildNames(treeUri, parentUri)) {
+            if (childName.equals(name)) {
+                // Resolve the matching document ID from the parent children URI.
+                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
+                        treeUri, DocumentsContract.getDocumentId(parentUri));
+                try (Cursor cursor = getContentResolver().query(children,
+                        new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME},
+                        null, null, null)) {
+                    if (cursor != null) {
+                        int idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
+                        int nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+                        while (cursor.moveToNext()) {
+                            if (name.equals(cursor.getString(nameColumn))) {
+                                return DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idColumn));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        throw new IllegalStateException("Не найдена папка " + childName);
+    }
+
+    private java.util.Set<String> queryChildNames(Uri treeUri, Uri parentUri) throws Exception {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri, DocumentsContract.getDocumentId(parentUri));
+        try (Cursor cursor = getContentResolver().query(children,
+                new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},
+                null, null, null)) {
+            if (cursor == null) throw new IllegalStateException("Проводник не вернул содержимое папки.");
+            int nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+            while (cursor.moveToNext()) {
+                if (nameColumn >= 0) names.add(cursor.getString(nameColumn));
+            }
+        }
+        return names;
+    }
+
+    private void showFolderResult(String title, String message) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton("Понятно", null)
+                .show();
     }
 
     private void createInstance() {
