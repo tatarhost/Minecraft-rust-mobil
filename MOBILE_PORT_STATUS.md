@@ -4,7 +4,7 @@
 
 - The requested Rust source is pinned in the `upstream/` Git submodule.
 - Native Android app (minSdk 23, compile SDK 35) with four launcher sections: Play, Versions, Files and Settings.
-- First launch forces the existing CHEATLAB account page. It cannot be dismissed before login.
+- First launch opens the launcher immediately. CHEATLAB login is opened from account controls and is required only before starting the game. Versions, files and settings remain accessible without login.
 - CHEATLAB's real registration/login flow remains on the website, including the ring CAPTCHA and email OTP verification.
 - The app reads the resulting session from the CHEATLAB WebView origin, validates it against `/api/auth/me`, and encrypts the app copy with Android Keystore AES-GCM.
 - Saved account state survives app restarts and device reboots. If the API is temporarily unreachable, the local encrypted session is retained rather than erased. A server-rejected session is cleared and login is requested again.
@@ -29,7 +29,7 @@ The Rust game client is a separate winit/wgpu application. The upstream project 
 7. Secure Microsoft OAuth and Minecraft ownership/session handoff for online play.
 8. Packaging the Rust runtime in the APK and end-to-end testing on physical Android devices.
 
-The current APK is a functional launcher shell with persistent CHEATLAB binding, release discovery and local file/profile management. It does not yet start the game; Play remains disabled until the Android runtime above exists and is tested.
+The current APK is a functional launcher shell with persistent CHEATLAB binding, release discovery and local file/profile management. It packages the Rust NativeActivity runtime. Launcher navigation is available before login; game launch checks the CHEATLAB account. Physical-device graphics, touch, resource import and gameplay still require end-to-end testing.
 
 ## Authentication boundary
 
