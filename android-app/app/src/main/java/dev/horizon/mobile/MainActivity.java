@@ -447,7 +447,7 @@ public final class MainActivity extends Activity {
         home.addView(storageCard, topMargin(12));
 
         addSectionLabel("ПРОФИЛИ ИГРЫ");
-        TextView instanceNote = label("Профили создаются локально и могут хранить отдельные настройки. Запуск и перенос игровых файлов подключатся после Android-порта движка.", 12, MUTED, false);
+        TextView instanceNote = label("Профили создаются локально и хранят отдельные настройки. Игровой движок поставляется в APK.", 12, MUTED, false);
         instanceNote.setLineSpacing(dp(3), 1f);
         instanceNote.setPadding(0, dp(5), 0, dp(10));
         home.addView(instanceNote);
@@ -559,6 +559,10 @@ public final class MainActivity extends Activity {
         box.setText(title);
         box.setTextSize(14);
         box.setTextColor(WHITE);
+        box.setMinHeight(dp(48));
+        box.setPadding(dp(4), dp(6), dp(8), dp(6));
+        box.setClickable(true);
+        box.setFocusable(true);
         box.setButtonTintList(android.content.res.ColorStateList.valueOf(WHITE));
         box.setChecked(getSharedPreferences(DATA_PREFS, MODE_PRIVATE).getBoolean(key, defaultValue));
         box.setOnCheckedChangeListener((button, checked) ->
@@ -963,7 +967,8 @@ public final class MainActivity extends Activity {
         String saved = readEncrypted();
         if (saved == null || saved.isEmpty()) {
             authRequired = true;
-            openAuth();
+            accountMessage = "Сессия не найдена. Подключите CHEATLAB для запуска игры.";
+            renderPage();
             return;
         }
         try {
@@ -974,7 +979,8 @@ public final class MainActivity extends Activity {
             if (!token.matches("[A-Za-z0-9_-]{20,80}") || !client.matches("[A-Za-z0-9_-]{16,64}")) {
                 clearEncrypted();
                 authRequired = true;
-                openAuth();
+                accountMessage = "Сохранённая сессия недействительна. Подключите CHEATLAB для запуска игры.";
+                renderPage();
                 return;
             }
             // Show the cached account immediately, even when the network is offline.
