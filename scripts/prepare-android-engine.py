@@ -262,4 +262,28 @@ if '[target.\'cfg(target_os = "android")\'.dependencies]' not in text:
     text += '\n[target.\'cfg(target_os = "android")\'.dependencies]\nwinit = { version = "0.30.13", features = ["android-native-activity"] }\n'
 client_cargo.write_text(text, encoding="utf-8")
 
-print("Android runtime adaptations applied to", root)
+# Build the NativeActivity wrapper as a member of Horizon's own workspace so
+# Cargo uses the pinned upstream lockfile and resolves all path crates together.
+workspace_root = Path(__file__).resolve().parents[1]
+wrapper_source = workspace_root / "android-engine"
+wrapper_target = root / "crates/horizon-android-engine"
+(wrapper_target / "src").mkdir(parents=True, exist_ok=True)
+wrapper_cargo = (wrapper_source / "Cargo.toml").read_text(encoding="utf-8")
+wrapper_cargo = wrapper_cargo.replace("../upstream/crates/horizon-client", "../horizon-client")
+wrapper_cargo = wrapper_cargo.replace("../upstream/crates/horizon-threads", "../horizon-threads")
+(wrapper_target / "Cargo.toml").write_text(wrapper_cargo, encoding="utf-8")
+(wrapper_target / "src/lib.rs").write_text(
+    (wrapper_source / "src/lib.rs").read_text(encoding="utf-8"),
+    encoding="utf-8",
+)
+workspace_manifest = root / "Cargo.toml"
+workspace_text = workspace_manifest.read_text(encoding="utf-8")
+member = '    "crates/horizon-android-engine",\n'
+if member not in workspace_text:
+    anchor = '    "crates/horizon-client",\n'
+    if anchor not in workspace_text:
+        raise SystemExit("upstream workspace member anchor was not found")
+    workspace_text = workspace_text.replace(anchor, anchor + member, 1)
+    workspace_manifest.write_text(workspace_text, encoding="utf-8")
+
+print("Android runtime adaptations and NativeActivity crate applied to", root)
