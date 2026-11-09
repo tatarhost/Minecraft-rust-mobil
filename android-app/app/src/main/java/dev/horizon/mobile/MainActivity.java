@@ -93,7 +93,13 @@ public final class MainActivity extends Activity {
         window.setNavigationBarColor(BG);
         window.getDecorView().setSystemUiVisibility(0);
         buildUi();
-        restoreSession();
+        String existingSession = readEncrypted();
+        if (existingSession == null || existingSession.isEmpty()) {
+            // A fresh install starts at the real CHEATLAB sign-in page.
+            openAuth();
+        } else {
+            restoreSession();
+        }
     }
 
     private void buildUi() {
@@ -256,7 +262,7 @@ public final class MainActivity extends Activity {
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
             authLayer.addView(layer, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            authWebView.loadUrl(SITE_URL);
+            authWebView.loadUrl(SITE_URL + "auth");
         }
         handler.removeCallbacks(authPoll);
         handler.post(authPoll);
@@ -338,6 +344,7 @@ public final class MainActivity extends Activity {
                 } else if (message != null && message.startsWith("Сессия")) {
                     clearEncrypted();
                     setAccountState(null, message);
+                    openAuth();
                 } else {
                     setAccountState(null, message);
                 }
@@ -402,7 +409,9 @@ public final class MainActivity extends Activity {
                 setAccountState(null, "Аккаунт CHEATLAB отвязан от этого устройства.");
                 if (authWebView != null) {
                     authWebView.evaluateJavascript("localStorage.removeItem('cheatlab.session');true;", null);
+                    authWebView.loadUrl(SITE_URL + "auth");
                 }
+                openAuth();
             });
         });
     }
