@@ -1,6 +1,7 @@
 package dev.horizon.mobile;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -23,16 +24,21 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -51,8 +57,11 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class MainActivity extends Activity {
     private static final String SITE_URL = "https://cheatlab.fun/";
     private static final String API_URL = "https://cheatlab.tatarhost.workers.dev";
+    private static final String HORIZON_API = "https://api.github.com/repos/horizon-rust/horizon";
     private static final String KEY_ALIAS = "dev.horizon.mobile.cheatlab.session.v1";
     private static final String PREFS = "horizon_secure_session";
+    private static final String DATA_PREFS = "horizon_mobile_data";
+    private static final int PICK_MINECRAFT_FOLDER = 4102;
 
     private static final int BG = Color.rgb(8, 8, 9);
     private static final int PANEL = Color.rgb(18, 18, 20);
@@ -60,28 +69,35 @@ public final class MainActivity extends Activity {
     private static final int WHITE = Color.rgb(248, 248, 250);
     private static final int MUTED = Color.rgb(153, 153, 160);
     private static final int BORDER = Color.rgb(47, 47, 52);
+    private static final int SOFT = Color.rgb(205, 205, 210);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+
     private FrameLayout root;
     private FrameLayout authLayer;
     private LinearLayout home;
+    private LinearLayout navBar;
     private TextView accountTitle;
     private TextView accountDescription;
-    private TextView authStatus;
     private Button accountButton;
-    private Button playButton;
     private WebView authWebView;
-    private boolean authVisible;
-    private boolean verificationRunning;
+
+    private String activePage = "play";
+    private String currentNick = "";
+    private String accountMessage = "Войдите или создайте аккаунт CHEATLAB.";
     private String lastSeenToken = "";
+    private boolean authVisible;
+    private boolean authRequired = true;
+    private boolean verificationRunning;
+    private int renderVersion;
 
     private final Runnable authPoll = new Runnable() {
         @Override
         public void run() {
             if (!authVisible || authWebView == null || isFinishing()) return;
             readWebViewSession();
-            handler.postDelayed(this, 1200);
+            handler.postDelayed(this, 1100);
         }
     };
 
@@ -93,9 +109,10 @@ public final class MainActivity extends Activity {
         window.setNavigationBarColor(BG);
         window.getDecorView().setSystemUiVisibility(0);
         buildUi();
-        String existingSession = readEncrypted();
-        if (existingSession == null || existingSession.isEmpty()) {
-            // A fresh install starts at the real CHEATLAB sign-in page.
+
+        String saved = readEncrypted();
+        if (saved == null || saved.isEmpty()) {
+            authRequired = true;
             openAuth();
         } else {
             restoreSession();
@@ -108,89 +125,24 @@ public final class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
-        home.setPadding(dp(22), dp(24), dp(22), dp(32));
+        home.setPadding(dp(20), dp(18), dp(20), dp(104));
         scroll.addView(home, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        LinearLayout brandRow = new LinearLayout(this);
-        brandRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand = label("HORIZON", 25, WHITE, true);
-        brand.setLetterSpacing(0.08f);
-        brandRow.addView(brand, new LinearLayout.LayoutParams(0, dp(38), 1f));
-        TextView edition = label("MOBILE", 10, MUTED, true);
-        edition.setPadding(dp(12), dp(7), dp(12), dp(7));
-        edition.setBackground(round(PANEL_2, BORDER, 30));
-        brandRow.addView(edition);
-        home.addView(brandRow);
-
-        TextView headline = label("Minecraft, собранный на Rust.", 27, WHITE, true);
-        headline.setPadding(0, dp(30), 0, dp(8));
-        home.addView(headline);
-        TextView intro = label("Мобильная оболочка Horizon. Привяжи CHEATLAB, чтобы открыть функции аккаунта лаунчера.", 14, MUTED, false);
-        intro.setLineSpacing(dp(4), 1f);
-        home.addView(intro);
-
-        LinearLayout accountCard = card();
-        accountCard.setPadding(dp(18), dp(18), dp(18), dp(18));
-        accountCard.setOrientation(LinearLayout.VERTICAL);
-        accountCard.addView(label("АККАУНТ CHEATLAB", 10, MUTED, true));
-        accountTitle = label("Аккаунт не подключён", 19, WHITE, true);
-        accountTitle.setPadding(0, dp(13), 0, dp(5));
-        accountCard.addView(accountTitle);
-        accountDescription = label("Регистрация и вход откроются на cheatlab.fun. Ключ входа для приложения не нужен.", 13, MUTED, false);
-        accountDescription.setLineSpacing(dp(3), 1f);
-        accountCard.addView(accountDescription);
-
-        accountButton = button("Подключить аккаунт", true);
-        accountButton.setOnClickListener(v -> openAuth());
-        LinearLayout.LayoutParams authButtonParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
-        authButtonParams.topMargin = dp(18);
-        accountCard.addView(accountButton, authButtonParams);
-
-        Button logoutButton = button("Отвязать аккаунт", false);
-        logoutButton.setOnClickListener(v -> logout());
-        LinearLayout.LayoutParams logoutParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
-        logoutParams.topMargin = dp(8);
-        accountCard.addView(logoutButton, logoutParams);
-        home.addView(accountCard, topMargin(24));
-
-        LinearLayout runtimeCard = card();
-        runtimeCard.setPadding(dp(18), dp(18), dp(18), dp(18));
-        runtimeCard.setOrientation(LinearLayout.VERTICAL);
-        runtimeCard.addView(label("ИГРОВОЙ ДВИЖОК", 10, MUTED, true));
-        TextView runtimeTitle = label("Android runtime ещё не подключён", 18, WHITE, true);
-        runtimeTitle.setPadding(0, dp(13), 0, dp(6));
-        runtimeCard.addView(runtimeTitle);
-        TextView runtimeText = label("Исходный Rust-клиент уже подключён в репозитории. Для запуска на телефоне требуется отдельная адаптация Android lifecycle, графики и сенсорного управления.", 13, MUTED, false);
-        runtimeText.setLineSpacing(dp(3), 1f);
-        runtimeCard.addView(runtimeText);
-        playButton = button("Играть — скоро", false);
-        playButton.setEnabled(false);
-        playButton.setAlpha(0.48f);
-        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
-        playParams.topMargin = dp(18);
-        runtimeCard.addView(playButton, playParams);
-        home.addView(runtimeCard, topMargin(14));
-
-        LinearLayout details = new LinearLayout(this);
-        details.setOrientation(LinearLayout.VERTICAL);
-        details.setPadding(dp(3), dp(20), dp(3), 0);
-        details.addView(label("CHEATLAB", 11, WHITE, true));
-        TextView site = label("cheatlab.fun  ↗", 13, MUTED, false);
-        site.setPadding(0, dp(8), 0, dp(12));
-        site.setOnClickListener(v -> openExternal(SITE_URL));
-        details.addView(site);
-        TextView source = label("Открытый исходный код · MIT", 13, MUTED, false);
-        source.setOnClickListener(v -> openExternal("https://github.com/tatarhost/Minecraft-rust-mobil"));
-        details.addView(source);
-        home.addView(details, topMargin(2));
+        navBar = new LinearLayout(this);
+        navBar.setOrientation(LinearLayout.HORIZONTAL);
+        navBar.setGravity(Gravity.CENTER);
+        navBar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        navBar.setBackground(round(BG, BORDER, 18));
+        FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.BOTTOM);
+        navParams.setMargins(dp(12), 0, dp(12), dp(10));
+        root.addView(navBar, navParams);
 
         authLayer = new FrameLayout(this);
         authLayer.setBackgroundColor(BG);
@@ -199,7 +151,665 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         setContentView(root);
-        setAccountState(null, "Войдите или создайте аккаунт на CHEATLAB.");
+        renderPage();
+    }
+
+    private void renderPage() {
+        renderVersion++;
+        home.removeAllViews();
+        addTopBar();
+
+        if ("play".equals(activePage)) {
+            addPlayPage();
+        } else if ("versions".equals(activePage)) {
+            addVersionsPage(renderVersion);
+        } else if ("files".equals(activePage)) {
+            addFilesPage();
+        } else {
+            addSettingsPage();
+        }
+        renderNavigation();
+    }
+
+    private void addTopBar() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView logo = label("HORIZON", 23, WHITE, true);
+        logo.setLetterSpacing(0.09f);
+        row.addView(logo, new LinearLayout.LayoutParams(0, dp(38), 1f));
+
+        TextView mobile = label("MOBILE", 10, MUTED, true);
+        mobile.setPadding(dp(11), dp(7), dp(11), dp(7));
+        mobile.setBackground(round(PANEL_2, BORDER, 20));
+        row.addView(mobile);
+
+        TextView account = label(currentNick.isEmpty() ? "CHEATLAB ↗" : "@" + currentNick, 12, SOFT, true);
+        account.setPadding(dp(10), dp(8), 0, dp(8));
+        account.setOnClickListener(v -> openAuth());
+        row.addView(account);
+        home.addView(row);
+
+        View line = new View(this);
+        line.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        lineParams.topMargin = dp(15);
+        home.addView(line, lineParams);
+    }
+
+    private void addPlayPage() {
+        TextView eyebrow = label("JAVA EDITION · RUST ENGINE", 10, MUTED, true);
+        eyebrow.setPadding(0, dp(24), 0, dp(8));
+        home.addView(eyebrow);
+
+        TextView headline = label("Твой мир.\nНа телефоне.", 34, WHITE, true);
+        headline.setLineSpacing(dp(1), 1f);
+        home.addView(headline);
+
+        TextView intro = label("Horizon — независимая реализация Minecraft Java Edition на Rust. Мобильный интерфейс готовится отдельно от настольного лаунчера.", 14, MUTED, false);
+        intro.setLineSpacing(dp(4), 1.05f);
+        intro.setPadding(0, dp(12), 0, 0);
+        home.addView(intro);
+
+        LinearLayout gameCard = card();
+        gameCard.setPadding(dp(18), dp(18), dp(18), dp(18));
+        gameCard.setOrientation(LinearLayout.VERTICAL);
+        gameCard.addView(label("ИГРОВОЙ ДВИЖОК", 10, MUTED, true));
+        TextView gameState = label("Android runtime не подключён", 19, WHITE, true);
+        gameState.setPadding(0, dp(13), 0, dp(7));
+        gameCard.addView(gameState);
+        TextView gameInfo = label("Исходник клиента Rust сохранён в upstream/. Для реального запуска ещё нужна Android-точка входа, поверхность wgpu, жизненный цикл Activity и адаптированный игровой цикл.", 13, MUTED, false);
+        gameInfo.setLineSpacing(dp(3), 1f);
+        gameCard.addView(gameInfo);
+
+        Button play = button("ИГРАТЬ  ·  ПОКА НЕДОСТУПНО", false);
+        play.setEnabled(false);
+        play.setAlpha(0.48f);
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        playParams.topMargin = dp(18);
+        gameCard.addView(play, playParams);
+        home.addView(gameCard, topMargin(22));
+
+        LinearLayout accountCard = card();
+        accountCard.setPadding(dp(18), dp(17), dp(18), dp(17));
+        accountCard.setOrientation(LinearLayout.VERTICAL);
+        accountCard.addView(label("АККАУНТ CHEATLAB", 10, MUTED, true));
+        accountTitle = label(currentNick.isEmpty() ? "Аккаунт не подключён" : "@" + currentNick, 19, WHITE, true);
+        accountTitle.setPadding(0, dp(12), 0, dp(5));
+        accountCard.addView(accountTitle);
+        accountDescription = label(accountMessage, 13, MUTED, false);
+        accountDescription.setLineSpacing(dp(3), 1f);
+        accountCard.addView(accountDescription);
+
+        accountButton = button(currentNick.isEmpty() ? "Подключить аккаунт" : "Управление аккаунтом", true);
+        accountButton.setOnClickListener(v -> openAuth());
+        LinearLayout.LayoutParams connectParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        connectParams.topMargin = dp(16);
+        accountCard.addView(accountButton, connectParams);
+        home.addView(accountCard, topMargin(14));
+
+        LinearLayout latest = card();
+        latest.setPadding(dp(18), dp(17), dp(18), dp(17));
+        latest.setOrientation(LinearLayout.VERTICAL);
+        latest.addView(label("ПОСЛЕДНЯЯ ВЕРСИЯ", 10, MUTED, true));
+        TextView release = label("Horizon 0.2.97", 18, WHITE, true);
+        release.setPadding(0, dp(10), 0, dp(4));
+        latest.addView(release);
+        latest.addView(label("Стабильная версия исходного проекта. В релизе нет Android-бинарника.", 13, MUTED, false));
+        Button versions = button("Открыть версии", false);
+        versions.setOnClickListener(v -> navigate("versions"));
+        LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(45));
+        versionParams.topMargin = dp(14);
+        latest.addView(versions, versionParams);
+        home.addView(latest, topMargin(14));
+
+        TextView notice = label("CHEATLAB даёт доступ к функциям лаунчера, но не заменяет Microsoft-вход и лицензию Minecraft Java Edition.", 11, MUTED, false);
+        notice.setLineSpacing(dp(3), 1f);
+        notice.setPadding(dp(3), dp(18), dp(3), 0);
+        home.addView(notice);
+    }
+
+    private void addVersionsPage(int versionToken) {
+        addPageHeading("Версии", "Релизы игрового движка и заметки разработчиков.");
+        LinearLayout latestCard = card();
+        latestCard.setPadding(dp(17), dp(17), dp(17), dp(17));
+        latestCard.setOrientation(LinearLayout.VERTICAL);
+        latestCard.addView(label("ПОСЛЕДНИЙ СТАБИЛЬНЫЙ РЕЛИЗ", 10, MUTED, true));
+        TextView latestName = label("Загрузка…", 19, WHITE, true);
+        latestName.setPadding(0, dp(10), 0, dp(7));
+        latestCard.addView(latestName);
+        TextView latestDate = label("Проверяю GitHub Releases", 12, MUTED, false);
+        latestCard.addView(latestDate);
+        TextView latestNotes = label("", 13, SOFT, false);
+        latestNotes.setLineSpacing(dp(3), 1f);
+        latestNotes.setPadding(0, dp(10), 0, 0);
+        latestCard.addView(latestNotes);
+        Button openRelease = button("Открыть релиз", false);
+        openRelease.setEnabled(false);
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        actionParams.topMargin = dp(13);
+        latestCard.addView(openRelease, actionParams);
+        home.addView(latestCard, topMargin(18));
+
+        addSectionLabel("ПОСЛЕДНИЕ СБОРКИ");
+        TextView feedStatus = label("Загружаю список релизов…", 13, MUTED, false);
+        feedStatus.setPadding(0, dp(8), 0, dp(8));
+        home.addView(feedStatus);
+        LinearLayout feed = new LinearLayout(this);
+        feed.setOrientation(LinearLayout.VERTICAL);
+        home.addView(feed);
+
+        io.execute(() -> {
+            JSONObject stable = null;
+            JSONArray releases = null;
+            String failure = null;
+            try {
+                stable = fetchJsonObject(HORIZON_API + "/releases/latest");
+                releases = fetchJsonArray(HORIZON_API + "/releases?per_page=30");
+            } catch (Exception error) {
+                failure = "Не удалось загрузить релизы: " + safeMessage(error);
+            }
+            JSONObject finalStable = stable;
+            JSONArray finalReleases = releases;
+            String finalFailure = failure;
+            runOnUiThread(() -> {
+                if (isFinishing() || !("versions".equals(activePage)) || versionToken != renderVersion) return;
+                if (finalStable == null) {
+                    latestName.setText("Версия недоступна");
+                    latestDate.setText(finalFailure == null ? "Нет ответа от GitHub." : finalFailure);
+                    feedStatus.setText("Проверь подключение к интернету.");
+                    return;
+                }
+                String tag = finalStable.optString("tag_name", "unknown");
+                String name = finalStable.optString("name", tag);
+                latestName.setText(name);
+                latestDate.setText("Тег " + tag + " · " + finalStable.optString("published_at", "").replace("T", " ").replace("Z", " UTC"));
+                latestNotes.setText(trimText(finalStable.optString("body", "Нет описания релиза."), 900));
+                String url = finalStable.optString("html_url", "https://github.com/horizon-rust/horizon/releases");
+                openRelease.setEnabled(true);
+                openRelease.setOnClickListener(v -> openExternal(url));
+
+                feed.removeAllViews();
+                int shown = 0;
+                if (finalReleases != null) {
+                    for (int i = 0; i < finalReleases.length() && shown < 12; i++) {
+                        JSONObject item = finalReleases.optJSONObject(i);
+                        if (item == null) continue;
+                        String itemTag = item.optString("tag_name", "");
+                        if (!(itemTag.startsWith("v") || itemTag.startsWith("nightly-"))) continue;
+                        addReleaseRow(feed, item);
+                        shown++;
+                    }
+                }
+                if (shown == 0) {
+                    feedStatus.setText("Список пуст. Открой страницу релизов GitHub.");
+                } else {
+                    feedStatus.setText("Показано " + shown + " релизов. Android-пакет в публичных релизах пока не опубликован.");
+                }
+            });
+        });
+
+        TextView disclaimer = label("Важно: страница показывает реальные релизы Horizon. Бинарники Linux / Windows / macOS нельзя устанавливать на Android. Кнопка запуска останется недоступной, пока не появится и не будет проверена Android-сборка игрового движка.", 11, MUTED, false);
+        disclaimer.setLineSpacing(dp(3), 1f);
+        disclaimer.setPadding(dp(2), dp(18), dp(2), 0);
+        home.addView(disclaimer);
+    }
+
+    private void addReleaseRow(LinearLayout parent, JSONObject release) {
+        LinearLayout row = card();
+        row.setPadding(dp(15), dp(14), dp(15), dp(14));
+        row.setOrientation(LinearLayout.VERTICAL);
+        String name = release.optString("name", release.optString("tag_name", "Horizon"));
+        String tag = release.optString("tag_name", "");
+        String published = release.optString("published_at", "");
+        row.addView(label(name, 15, WHITE, true));
+        TextView meta = label(tag + (published.isEmpty() ? "" : " · " + published.substring(0, Math.min(10, published.length()))), 11, MUTED, false);
+        meta.setPadding(0, dp(5), 0, dp(4));
+        row.addView(meta);
+        JSONArray assets = release.optJSONArray("assets");
+        boolean androidAsset = false;
+        if (assets != null) {
+            for (int i = 0; i < assets.length(); i++) {
+                JSONObject asset = assets.optJSONObject(i);
+                if (asset != null && asset.optString("name", "").toLowerCase().contains("android")) {
+                    androidAsset = true;
+                    break;
+                }
+            }
+        }
+        row.addView(label(androidAsset ? "Android asset найден в релизе" : "Android-пакета нет · только заметки и исходники", 11, androidAsset ? SOFT : MUTED, false));
+        Button details = button("Заметки релиза", false);
+        details.setOnClickListener(v -> openExternal(release.optString("html_url", "https://github.com/horizon-rust/horizon/releases")));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        p.topMargin = dp(10);
+        row.addView(details, p);
+        parent.addView(row, topMargin(9));
+    }
+
+    private void addFilesPage() {
+        addPageHeading("Файлы и профили", "Локальные данные остаются на этом устройстве.");
+        LinearLayout folderCard = card();
+        folderCard.setPadding(dp(17), dp(17), dp(17), dp(17));
+        folderCard.setOrientation(LinearLayout.VERTICAL);
+        folderCard.addView(label("ПАПКА MINECRAFT JAVA", 10, MUTED, true));
+        String savedUri = getSharedPreferences(DATA_PREFS, MODE_PRIVATE).getString("minecraft_tree", "");
+        TextView folderState = label(savedUri.isEmpty() ? "Папка ещё не выбрана" : "Папка подключена через Android Storage Access Framework", 14, WHITE, true);
+        folderState.setPadding(0, dp(10), 0, dp(7));
+        folderCard.addView(folderState);
+        if (!savedUri.isEmpty()) {
+            TextView uriLabel = label(savedUri, 10, MUTED, false);
+            uriLabel.setTextIsSelectable(true);
+            folderCard.addView(uriLabel);
+        }
+        folderCard.addView(label("Выбери свою папку с файлами Minecraft Java Edition. Приложение не отправляет её содержимое на сервер.", 12, MUTED, false));
+        Button selectFolder = button(savedUri.isEmpty() ? "Выбрать папку Minecraft" : "Изменить папку", true);
+        selectFolder.setOnClickListener(v -> chooseMinecraftFolder());
+        LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(47));
+        selectParams.topMargin = dp(14);
+        folderCard.addView(selectFolder, selectParams);
+        home.addView(folderCard, topMargin(18));
+
+        File dataRoot = new File(getFilesDir(), "horizon");
+        String[] names = {"instances", "versions", "worlds", "mods", "resourcepacks", "logs"};
+        for (String name : names) new File(dataRoot, name).mkdirs();
+
+        LinearLayout storageCard = card();
+        storageCard.setPadding(dp(17), dp(17), dp(17), dp(17));
+        storageCard.setOrientation(LinearLayout.VERTICAL);
+        storageCard.addView(label("ХРАНИЛИЩЕ ПРИЛОЖЕНИЯ", 10, MUTED, true));
+        storageCard.addView(label(dataRoot.getAbsolutePath(), 11, SOFT, false));
+        for (String name : names) {
+            File folder = new File(dataRoot, name);
+            TextView item = label(name + "  ·  " + countChildren(folder) + " объектов", 13, WHITE, false);
+            item.setPadding(0, dp(9), 0, 0);
+            storageCard.addView(item);
+        }
+        home.addView(storageCard, topMargin(12));
+
+        addSectionLabel("ПРОФИЛИ ИГРЫ");
+        TextView instanceNote = label("Профили создаются локально и могут хранить отдельные настройки. Запуск и перенос игровых файлов подключатся после Android-порта движка.", 12, MUTED, false);
+        instanceNote.setLineSpacing(dp(3), 1f);
+        instanceNote.setPadding(0, dp(5), 0, dp(10));
+        home.addView(instanceNote);
+
+        Button create = button("＋  Создать профиль", true);
+        create.setOnClickListener(v -> createInstance());
+        home.addView(create, topMargin(4));
+        LinearLayout instances = new LinearLayout(this);
+        instances.setOrientation(LinearLayout.VERTICAL);
+        home.addView(instances, topMargin(10));
+        renderInstances(instances);
+    }
+
+    private void renderInstances(LinearLayout container) {
+        container.removeAllViews();
+        JSONArray values = getInstances();
+        if (values.length() == 0) {
+            TextView empty = label("Пока нет профилей. Создай отдельный профиль для будущей игровой конфигурации.", 12, MUTED, false);
+            empty.setPadding(dp(2), dp(7), dp(2), dp(7));
+            container.addView(empty);
+            return;
+        }
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject item = values.optJSONObject(i);
+            if (item == null) continue;
+            String name = item.optString("name", "Horizon");
+            LinearLayout row = card();
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(10), dp(10), dp(10));
+            TextView title = label(name, 14, WHITE, true);
+            row.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1f));
+            Button remove = button("Удалить", false);
+            remove.setMinWidth(dp(80));
+            final int index = i;
+            remove.setOnClickListener(v -> confirmDeleteInstance(index, name));
+            row.addView(remove);
+            container.addView(row, topMargin(7));
+        }
+    }
+
+    private void addSettingsPage() {
+        addPageHeading("Настройки", "Аккаунт, управление, приватность и данные приложения.");
+
+        LinearLayout account = card();
+        account.setPadding(dp(17), dp(17), dp(17), dp(17));
+        account.setOrientation(LinearLayout.VERTICAL);
+        account.addView(label("CHEATLAB", 10, MUTED, true));
+        TextView user = label(currentNick.isEmpty() ? "Не подключён" : "@" + currentNick, 19, WHITE, true);
+        user.setPadding(0, dp(10), 0, dp(5));
+        account.addView(user);
+        TextView detail = label(accountMessage, 12, MUTED, false);
+        detail.setLineSpacing(dp(3), 1f);
+        account.addView(detail);
+        Button connect = button(currentNick.isEmpty() ? "Войти или зарегистрироваться" : "Открыть аккаунт CHEATLAB", true);
+        connect.setOnClickListener(v -> openAuth());
+        account.addView(connect, topMargin(14));
+        Button logout = button("Выйти и отвязать устройство", false);
+        logout.setOnClickListener(v -> logout());
+        account.addView(logout, topMargin(8));
+        home.addView(account, topMargin(18));
+
+        addSectionLabel("УПРАВЛЕНИЕ");
+        CheckBox touch = check("Сенсорные кнопки", "touch_controls", true);
+        CheckBox gamepad = check("Поддержка геймпада", "gamepad_enabled", true);
+        CheckBox keyboard = check("Клавиатура и мышь", "keyboard_enabled", true);
+        home.addView(touch, topMargin(7));
+        home.addView(gamepad, topMargin(3));
+        home.addView(keyboard, topMargin(3));
+        TextView controlsNote = label("Настройки сохраняются на устройстве. В игровом процессе они начнут действовать после подключения Android runtime.", 11, MUTED, false);
+        controlsNote.setPadding(dp(2), dp(5), dp(2), 0);
+        home.addView(controlsNote);
+
+        addSectionLabel("ПРИЛОЖЕНИЕ");
+        LinearLayout info = card();
+        info.setPadding(dp(17), dp(16), dp(17), dp(16));
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.addView(label("Horizon Mobile · 0.1.0", 14, WHITE, true));
+        info.addView(label("Минимум Android 6.0 · данные аккаунта защищены Android Keystore AES-GCM.", 12, MUTED, false), topMargin(6));
+        info.addView(label("Сайт: cheatlab.fun", 12, MUTED, false), topMargin(7));
+        home.addView(info, topMargin(11));
+
+        Button website = button("Открыть CHEATLAB", false);
+        website.setOnClickListener(v -> openExternal(SITE_URL));
+        home.addView(website, topMargin(11));
+
+        Button clearCache = button("Очистить временный кеш", false);
+        clearCache.setOnClickListener(v -> confirmClearCache());
+        home.addView(clearCache, topMargin(8));
+    }
+
+    private CheckBox check(String title, String key, boolean defaultValue) {
+        CheckBox box = new CheckBox(this);
+        box.setText(title);
+        box.setTextSize(14);
+        box.setTextColor(WHITE);
+        box.setButtonTintList(android.content.res.ColorStateList.valueOf(WHITE));
+        box.setChecked(getSharedPreferences(DATA_PREFS, MODE_PRIVATE).getBoolean(key, defaultValue));
+        box.setOnCheckedChangeListener((button, checked) ->
+                getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putBoolean(key, checked).apply());
+        return box;
+    }
+
+    private void addPageHeading(String title, String subtitle) {
+        TextView heading = label(title, 29, WHITE, true);
+        heading.setPadding(0, dp(25), 0, dp(5));
+        home.addView(heading);
+        TextView sub = label(subtitle, 13, MUTED, false);
+        sub.setLineSpacing(dp(3), 1f);
+        home.addView(sub);
+    }
+
+    private void addSectionLabel(String value) {
+        TextView title = label(value, 10, MUTED, true);
+        title.setPadding(dp(2), dp(20), 0, dp(5));
+        home.addView(title);
+    }
+
+    private void renderNavigation() {
+        navBar.removeAllViews();
+        addNavItem("play", "Играть", "play".equals(activePage));
+        addNavItem("versions", "Версии", "versions".equals(activePage));
+        addNavItem("files", "Файлы", "files".equals(activePage));
+        addNavItem("settings", "Настройки", "settings".equals(activePage));
+    }
+
+    private void addNavItem(String page, String title, boolean selected) {
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.CENTER);
+        item.setPadding(dp(3), dp(5), dp(3), dp(4));
+        item.setBackground(selected ? round(PANEL_2, BORDER, 14) : round(BG, Color.TRANSPARENT, 14));
+        TextView label = label(title, 11, selected ? WHITE : MUTED, selected);
+        item.addView(label);
+        item.setOnClickListener(v -> navigate(page));
+        navBar.addView(item, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+    }
+
+    private void navigate(String page) {
+        if (!("play".equals(page) || "versions".equals(page) || "files".equals(page) || "settings".equals(page))) return;
+        activePage = page;
+        renderPage();
+    }
+
+    private void chooseMinecraftFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, PICK_MINECRAFT_FOLDER);
+        } catch (Exception error) {
+            Toast.makeText(this, "Не удалось открыть выбор папки.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_MINECRAFT_FOLDER || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        try {
+            int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            getContentResolver().takePersistableUriPermission(uri, flags);
+            getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("minecraft_tree", uri.toString()).apply();
+            Toast.makeText(this, "Папка Minecraft сохранена на устройстве.", Toast.LENGTH_LONG).show();
+            renderPage();
+        } catch (Exception error) {
+            Toast.makeText(this, "Android не выдал постоянный доступ к этой папке.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void createInstance() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextColor(WHITE);
+        input.setHintTextColor(MUTED);
+        input.setHint("Например, Survival");
+        input.setPadding(dp(12), dp(10), dp(12), dp(10));
+        input.setBackground(round(PANEL_2, BORDER, 10));
+
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setPadding(dp(20), dp(8), dp(20), 0);
+        wrap.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Новый профиль")
+                .setView(wrap)
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Создать", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String name = input.getText().toString().trim();
+            if (name.length() < 2 || name.length() > 24) {
+                input.setError("От 2 до 24 символов.");
+                return;
+            }
+            JSONArray values = getInstances();
+            for (int i = 0; i < values.length(); i++) {
+                JSONObject existing = values.optJSONObject(i);
+                if (existing != null && existing.optString("name").equalsIgnoreCase(name)) {
+                    input.setError("Такой профиль уже есть.");
+                    return;
+                }
+            }
+            try {
+                values.put(new JSONObject().put("name", name).put("createdAt", System.currentTimeMillis()));
+                getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("instances", values.toString()).apply();
+                String safe = name.replaceAll("[^A-Za-z0-9_-]", "_");
+                new File(new File(getFilesDir(), "horizon/instances"), safe).mkdirs();
+                dialog.dismiss();
+                renderPage();
+                Toast.makeText(this, "Профиль сохранён.", Toast.LENGTH_SHORT).show();
+            } catch (Exception error) {
+                input.setError("Не удалось сохранить профиль.");
+            }
+        }));
+        dialog.show();
+    }
+
+    private void confirmDeleteInstance(int index, String name) {
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить профиль?")
+                .setMessage("Профиль «" + name + "» будет удалён с этого устройства.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Удалить", (dialog, which) -> {
+                    JSONArray values = getInstances();
+                    JSONArray next = new JSONArray();
+                    for (int i = 0; i < values.length(); i++) {
+                        if (i == index) continue;
+                        JSONObject item = values.optJSONObject(i);
+                        if (item != null) next.put(item);
+                    }
+                    getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("instances", next.toString()).apply();
+                    String safe = name.replaceAll("[^A-Za-z0-9_-]", "_");
+                    deleteTree(new File(new File(getFilesDir(), "horizon/instances"), safe));
+                    renderPage();
+                }).show();
+    }
+
+    private JSONArray getInstances() {
+        try {
+            return new JSONArray(getSharedPreferences(DATA_PREFS, MODE_PRIVATE).getString("instances", "[]"));
+        } catch (Exception error) {
+            return new JSONArray();
+        }
+    }
+
+    private void confirmClearCache() {
+        new AlertDialog.Builder(this)
+                .setTitle("Очистить кеш?")
+                .setMessage("Будут удалены только временные файлы приложения. Сохранённый аккаунт, профили и выбранная папка Minecraft останутся.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Очистить", (dialog, which) -> {
+                    deleteTree(getCacheDir());
+                    Toast.makeText(this, "Временный кеш очищен.", Toast.LENGTH_SHORT).show();
+                }).show();
+    }
+
+    private void addHomeSpacer() {
+        View v = new View(this);
+        home.addView(v, new LinearLayout.LayoutParams(1, dp(3)));
+    }
+
+    private LinearLayout card() {
+        LinearLayout view = new LinearLayout(this);
+        view.setOrientation(LinearLayout.VERTICAL);
+        view.setBackground(round(PANEL, BORDER, 20));
+        return view;
+    }
+
+    private TextView label(String value, int size, int color, boolean bold) {
+        TextView text = new TextView(this);
+        text.setText(value);
+        text.setTextSize(size);
+        text.setTextColor(color);
+        text.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
+        text.setIncludeFontPadding(true);
+        return text;
+    }
+
+    private Button button(String value, boolean primary) {
+        Button button = new Button(this);
+        button.setText(value);
+        button.setTextSize(13);
+        button.setAllCaps(false);
+        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        button.setTextColor(primary ? BG : WHITE);
+        button.setPadding(dp(12), 0, dp(12), 0);
+        button.setBackground(round(primary ? WHITE : PANEL_2, primary ? WHITE : BORDER, 14));
+        return button;
+    }
+
+    private GradientDrawable round(int fill, int stroke, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radius));
+        if (stroke != Color.TRANSPARENT) drawable.setStroke(dp(1), stroke);
+        return drawable;
+    }
+
+    private LinearLayout.LayoutParams topMargin(int value) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(value);
+        return params;
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private int countChildren(File folder) {
+        File[] entries = folder.listFiles();
+        return entries == null ? 0 : entries.length;
+    }
+
+    private void deleteTree(File file) {
+        if (file == null || !file.exists()) return;
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        if (!file.equals(getFilesDir()) && !file.equals(getCacheDir())) file.delete();
+    }
+
+    private JSONObject fetchJsonObject(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            connection.setConnectTimeout(12000);
+            connection.setReadTimeout(15000);
+            connection.setRequestProperty("Accept", "application/vnd.github+json");
+            connection.setRequestProperty("User-Agent", "Horizon-Mobile-Android");
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
+            String body = readAll(stream);
+            if (status < 200 || status >= 300) throw new IllegalStateException("GitHub HTTP " + status);
+            return new JSONObject(body);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private JSONArray fetchJsonArray(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            connection.setConnectTimeout(12000);
+            connection.setReadTimeout(15000);
+            connection.setRequestProperty("Accept", "application/vnd.github+json");
+            connection.setRequestProperty("User-Agent", "Horizon-Mobile-Android");
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
+            String body = readAll(stream);
+            if (status < 200 || status >= 300) throw new IllegalStateException("GitHub HTTP " + status);
+            return new JSONArray(body);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private String trimText(String value, int max) {
+        String clean = value == null ? "" : value.trim();
+        if (clean.length() <= max) return clean.isEmpty() ? "Нет описания релиза." : clean;
+        return clean.substring(0, max).trim() + "…";
+    }
+
+    private String safeMessage(Exception error) {
+        String message = error.getMessage();
+        return message == null || message.isEmpty() ? error.getClass().getSimpleName() : message;
+    }
+
+    private void openExternal(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        } catch (Exception ignored) {
+            Toast.makeText(this, "Не удалось открыть ссылку.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openAuth() {
@@ -245,10 +855,11 @@ public final class MainActivity extends Activity {
             LinearLayout bar = new LinearLayout(this);
             bar.setGravity(Gravity.CENTER_VERTICAL);
             bar.setPadding(dp(16), dp(10), dp(16), dp(10));
-            TextView title = label("CHEATLAB · ВХОД", 13, WHITE, true);
+            TextView title = label("CHEATLAB · ПРИВЯЗКА АККАУНТА", 12, WHITE, true);
             bar.addView(title, new LinearLayout.LayoutParams(0, dp(42), 1f));
             Button close = button("Закрыть", false);
-            close.setMinWidth(dp(88));
+            close.setMinWidth(dp(82));
+            close.setVisibility(authRequired ? View.GONE : View.VISIBLE);
             close.setOnClickListener(v -> closeAuth());
             bar.addView(close);
             layer.addView(bar);
@@ -263,12 +874,15 @@ public final class MainActivity extends Activity {
             authLayer.addView(layer, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             authWebView.loadUrl(SITE_URL + "auth");
+        } else {
+            authWebView.loadUrl(SITE_URL + "auth");
         }
         handler.removeCallbacks(authPoll);
         handler.post(authPoll);
     }
 
     private void closeAuth() {
+        if (authRequired) return;
         authVisible = false;
         handler.removeCallbacks(authPoll);
         authLayer.setVisibility(View.GONE);
@@ -290,33 +904,48 @@ public final class MainActivity extends Activity {
                         || token.equals(lastSeenToken)) return;
                 lastSeenToken = token;
                 verificationRunning = true;
-                verifySession(token, client, true);
+                verifySession(token, client, true, "");
             } catch (Exception ignored) {
-                // No session yet; the account form may still be open.
+                // No session yet; the real CHEATLAB account form may still be open.
             }
         });
     }
 
     private void restoreSession() {
         String saved = readEncrypted();
-        if (saved == null || saved.isEmpty()) return;
+        if (saved == null || saved.isEmpty()) {
+            authRequired = true;
+            openAuth();
+            return;
+        }
         try {
             JSONObject data = new JSONObject(saved);
             String token = data.optString("token", "");
             String client = data.optString("client", "");
-            if (token.isEmpty() || client.isEmpty()) {
+            String nickname = data.optString("nick", "");
+            if (!token.matches("[A-Za-z0-9_-]{20,80}") || !client.matches("[A-Za-z0-9_-]{16,64}")) {
                 clearEncrypted();
+                authRequired = true;
+                openAuth();
                 return;
             }
+            // Show the cached account immediately, even when the network is offline.
+            currentNick = nickname;
+            authRequired = false;
+            accountMessage = "Аккаунт сохранён на этом устройстве. Проверяю сессию…";
+            activePage = "play";
+            renderPage();
             verificationRunning = true;
-            verifySession(token, client, false);
+            verifySession(token, client, false, nickname);
         } catch (Exception error) {
             clearEncrypted();
-            setAccountState(null, "Сохранённая сессия повреждена. Подключите аккаунт заново.");
+            authRequired = true;
+            accountMessage = "Сохранённая сессия повреждена. Подключите аккаунт заново.";
+            openAuth();
         }
     }
 
-    private void verifySession(String token, String client, boolean fromWebView) {
+    private void verifySession(String token, String client, boolean fromWebView, String cachedNickname) {
         io.execute(() -> {
             String nickname = null;
             String failure = null;
@@ -328,7 +957,7 @@ public final class MainActivity extends Activity {
                         .put("client", client)
                         .put("nick", nickname).toString());
             } catch (Exception error) {
-                failure = "Не удалось проверить CHEATLAB. Проверьте подключение к интернету.";
+                failure = "Нет соединения с CHEATLAB. Сохранённый аккаунт оставлен на устройстве.";
             }
 
             final String verifiedNick = nickname;
@@ -336,17 +965,27 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 verificationRunning = false;
                 if (verifiedNick != null) {
-                    setAccountState(verifiedNick, "Аккаунт подтверждён сервером CHEATLAB.");
-                    closeAuth();
+                    currentNick = verifiedNick;
+                    authRequired = false;
+                    accountMessage = "Аккаунт подтверждён сервером CHEATLAB и сохранён на устройстве.";
+                    renderPage();
+                    if (authVisible) closeAuth();
                 } else if (fromWebView) {
-                    lastSeenToken = "";
-                    setAccountState(null, message == null ? "Не удалось войти." : message);
+                    accountMessage = message == null ? "Не удалось войти." : message;
+                    setAccountState("", accountMessage);
                 } else if (message != null && message.startsWith("Сессия")) {
                     clearEncrypted();
-                    setAccountState(null, message);
+                    currentNick = "";
+                    authRequired = true;
+                    accountMessage = message;
+                    renderPage();
                     openAuth();
                 } else {
-                    setAccountState(null, message);
+                    // Offline launch: keep the encrypted cache and its displayed account.
+                    currentNick = cachedNickname;
+                    authRequired = false;
+                    accountMessage = message == null ? "Сохранённый аккаунт доступен офлайн." : message;
+                    renderPage();
                 }
             });
         });
@@ -376,11 +1015,15 @@ public final class MainActivity extends Activity {
 
     private void logout() {
         String saved = readEncrypted();
-        if (saved == null) {
-            setAccountState(null, "Аккаунт уже отключён.");
+        if (saved == null || saved.isEmpty()) {
+            currentNick = "";
+            authRequired = true;
+            accountMessage = "Аккаунт отключён.";
+            renderPage();
+            openAuth();
             return;
         }
-        accountButton.setEnabled(false);
+        if (accountButton != null) accountButton.setEnabled(false);
         io.execute(() -> {
             try {
                 JSONObject data = new JSONObject(saved);
@@ -401,15 +1044,18 @@ public final class MainActivity extends Activity {
                     connection.disconnect();
                 }
             } catch (Exception ignored) {
-                // Local sign-out still removes this device's credential.
+                // Local sign-out still clears this device's credential.
             }
             clearEncrypted();
             runOnUiThread(() -> {
-                accountButton.setEnabled(true);
-                setAccountState(null, "Аккаунт CHEATLAB отвязан от этого устройства.");
+                currentNick = "";
+                authRequired = true;
+                accountMessage = "Аккаунт CHEATLAB отвязан от этого устройства.";
+                lastSeenToken = "";
+                renderPage();
                 if (authWebView != null) {
-                    authWebView.evaluateJavascript("localStorage.removeItem('cheatlab.session');true;", null);
-                    authWebView.loadUrl(SITE_URL + "auth");
+                    authWebView.evaluateJavascript("localStorage.removeItem('cheatlab.session');true;", ignored ->
+                            authWebView.loadUrl(SITE_URL + "auth"));
                 }
                 openAuth();
             });
@@ -417,16 +1063,11 @@ public final class MainActivity extends Activity {
     }
 
     private void setAccountState(String nickname, String description) {
-        if (accountTitle == null) return;
-        if (nickname == null || nickname.isEmpty()) {
-            accountTitle.setText("Аккаунт не подключён");
-            accountButton.setText("Подключить аккаунт");
-        } else {
-            accountTitle.setText("@" + nickname);
-            accountButton.setText("Аккаунт подключён");
-        }
-        accountButton.setEnabled(true);
-        accountDescription.setText(description);
+        currentNick = nickname == null ? "" : nickname;
+        accountMessage = description == null ? "" : description;
+        if (accountTitle != null) accountTitle.setText(currentNick.isEmpty() ? "Аккаунт не подключён" : "@" + currentNick);
+        if (accountDescription != null) accountDescription.setText(accountMessage);
+        if (accountButton != null) accountButton.setText(currentNick.isEmpty() ? "Подключить аккаунт" : "Управление аккаунтом");
     }
 
     private void saveEncrypted(String plainText) throws Exception {
@@ -486,72 +1127,39 @@ public final class MainActivity extends Activity {
         return result.toString();
     }
 
-    private void openExternal(String url) {
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(intent);
-        } catch (Exception ignored) {
-            // No external handler is installed.
-        }
-    }
-
-    private LinearLayout card() {
-        LinearLayout view = new LinearLayout(this);
-        view.setOrientation(LinearLayout.VERTICAL);
-        view.setBackground(round(PANEL, BORDER, 22));
-        return view;
-    }
-
-    private TextView label(String value, int size, int color, boolean bold) {
-        TextView text = new TextView(this);
-        text.setText(value);
-        text.setTextSize(size);
-        text.setTextColor(color);
-        text.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
-        text.setIncludeFontPadding(true);
-        return text;
-    }
-
-    private Button button(String value, boolean primary) {
-        Button button = new Button(this);
-        button.setText(value);
-        button.setTextSize(14);
-        button.setAllCaps(false);
-        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        button.setTextColor(primary ? BG : WHITE);
-        button.setPadding(dp(16), 0, dp(16), 0);
-        button.setBackground(round(primary ? WHITE : PANEL_2, primary ? WHITE : BORDER, 16));
-        return button;
-    }
-
-    private GradientDrawable round(int fill, int stroke, int radius) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(fill);
-        drawable.setCornerRadius(dp(radius));
-        if (stroke != 0) drawable.setStroke(dp(1), stroke);
-        return drawable;
-    }
-
-    private LinearLayout.LayoutParams topMargin(int value) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(value);
-        return params;
-    }
-
-    private int dp(float value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
         if (authVisible) {
-            if (authWebView != null && authWebView.canGoBack()) authWebView.goBack();
-            else closeAuth();
+            if (authWebView != null && authWebView.canGoBack()) {
+                authWebView.goBack();
+            } else if (!authRequired) {
+                closeAuth();
+            }
+            return;
+        }
+        if (!"play".equals(activePage)) {
+            navigate("play");
             return;
         }
         super.onBackPressed();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!authRequired && !currentNick.isEmpty() && !verificationRunning) {
+            String saved = readEncrypted();
+            if (saved != null && !saved.isEmpty()) {
+                try {
+                    JSONObject data = new JSONObject(saved);
+                    verificationRunning = true;
+                    verifySession(data.optString("token"), data.optString("client"), false, currentNick);
+                } catch (Exception ignored) {
+                    // A damaged session is handled at the next explicit account action.
+                }
+            }
+        }
     }
 
     @Override
