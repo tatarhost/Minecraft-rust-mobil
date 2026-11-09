@@ -1,50 +1,42 @@
-# Horizon Mobile
+# HORIZON Mobile
 
-Open-source Android launcher project for **Horizon / Minecraft-rust**.
+Android port of the original **Horizon Rust client**. This repository keeps the Rust game client as the runtime; it does not substitute a separate Java launcher such as Amethyst.
 
-The requested source repository is retained as a pinned Git submodule in `upstream/` at `2381ba865fee7292e263794c827fe694d4851bdf`. Its MIT license and attribution are preserved. This repo's Android app is written in Java and built with Gradle.
+## Android build
 
-## Android app features currently implemented
+The Android app consists of:
+- A native Android launcher shell with CHEATLAB account connection.
+- The original Horizon Rust client compiled for Android arm64 and hosted through Android NativeActivity.
+- A black-and-white mobile interface for Play, versions, files and settings.
+- Android touch navigation, local profiles and Minecraft-folder access.
 
-- Native black-and-white launcher UI with Play, Versions, Files and Settings sections.
-- First launch opens the real CHEATLAB sign-in / registration page.
-- Registration and login use CHEATLAB's own CAPTCHA and email-code verification.
-- The app validates the resulting account session against the CHEATLAB Worker API.
-- A validated session is encrypted using Android Keystore AES-GCM and retained across app restarts and device reboots. A network outage does not erase the local session.
-- Logout revokes the server session and clears the local encrypted copy.
-- Versions page reads real Horizon release metadata from GitHub and clearly distinguishes desktop releases from Android builds.
-- Files page lets the user grant persistent access to their own Minecraft folder through Android's Storage Access Framework.
-- Local profile folders can be created and removed inside the app's private storage.
-- Touch, controller and keyboard preference switches are saved locally for the later game runtime.
-- GitHub Actions builds and uploads the debug APK on every push to `main`.
+GitHub Actions builds the Rust Android APK on pushes to `main`:
 
-## Build
+- Workflow: `.github/workflows/android.yml`
+- Artifact: `horizon-mobile-rust-engine-debug-apk`
+- APK output: `android-app/app/build/outputs/apk/debug/app-debug.apk`
 
-Requires JDK 17, Android SDK Platform 35 and Gradle 8.9:
+## Current implementation status
+
+The Rust native client and Android wrapper compile into the APK. The launcher can start that native client after CHEATLAB sign-in.
+
+This is **not yet a complete general-purpose Minecraft Java Edition installer**. The current APK does not automatically download and provision every Mojang version, Java runtimes, libraries and assets. The original Rust client has its own game/resource requirements; the Android port still needs the remaining resource provisioning, touch HUD/input integration and on-device gameplay testing before it can be described as fully playable.
+
+CHEATLAB authentication is separate from Microsoft/Minecraft authentication and does not grant a Minecraft Java Edition license. The app does not bypass Microsoft sign-in, ownership checks or bundle proprietary Minecraft game assets.
+
+## Build locally
+
+Requires JDK 17, Android SDK Platform 35, NDK 27.2.12479018, Rust stable with `aarch64-linux-android`, and cargo-ndk 3.5.1.
 
 ```bash
 git clone --recurse-submodules https://github.com/tatarhost/Minecraft-rust-mobil.git
-gradle -p android-app :app:assembleDebug
+python3 scripts/prepare-android-engine.py upstream
+gradle --no-daemon -p android-app :app:assembleDebug
 ```
 
-APK output:
+## Source and licensing
 
-`android-app/app/build/outputs/apk/debug/app-debug.apk`
-
-Or download `horizon-mobile-debug-apk` from **Actions → Android APK → Artifacts**.
-
-## Game runtime status
-
-**This is not yet a playable Minecraft Android build.** The desktop launcher uses GPUI, which is not an Android UI toolkit. The Rust game client is separate and uses winit/wgpu; it still needs a native Android entry point, Android lifecycle and surface handling, target-specific dependency/build integration, touch HUD wiring, Android storage integration and device testing. The Play button is intentionally disabled until a real Android game runtime is compiled and packaged.
-
-The mobile app currently implements the launcher shell, CHEATLAB account binding, release metadata, local profile folders and Minecraft-folder selection. It does not claim that those profile folders are playable game instances.
-
-CHEATLAB authentication is separate from Microsoft/Minecraft authentication and does not grant a Minecraft Java Edition license. Online Minecraft play must continue to use the supported Microsoft sign-in and ownership checks. The app does not bypass either system and does not bundle Mojang game files.
-
-## Repositories and licensing
-
-- Requested source: [tr4m0ryp/Minecraft-rust](https://github.com/tr4m0ryp/Minecraft-rust)
-- Mobile app: [tatarhost/Minecraft-rust-mobil](https://github.com/tatarhost/Minecraft-rust-mobil)
-- The pinned source submodule makes upstream changes explicit and reviewable.
-- The original project's MIT notices remain in `upstream/LICENSE` and this repository's `LICENSE`.
-- The Android build contains no Minecraft JARs, textures, sounds or other proprietary game assets.
+- Original Rust project: [tr4m0ryp/Minecraft-rust](https://github.com/tr4m0ryp/Minecraft-rust)
+- Android port: [tatarhost/Minecraft-rust-mobil](https://github.com/tatarhost/Minecraft-rust-mobil)
+- The upstream source is pinned as a Git submodule. Its MIT license and attribution are preserved.
+- No proprietary Minecraft JARs, textures, sounds or other game assets are bundled.
