@@ -1,31 +1,36 @@
 # Mobile port status
 
-## Completed in this milestone
+## Implemented and build-verified
 
-- The upstream Rust project is linked as a pinned Git submodule at \`upstream/\`.
-- A native Android application project is configured for API 23+ / compile SDK 35.
-- The app can open the existing CHEATLAB account UI on \`cheatlab.fun\`.
-- The website remains responsible for its real registration/login, ring CAPTCHA, and email OTP flow.
-- The app reads the website's resulting session from its own WebView origin, validates it against \`/api/auth/me\`, and stores the app copy encrypted with an Android Keystore AES-GCM key.
-- The app can revalidate and revoke that CHEATLAB session.
-- A GitHub Actions workflow builds and uploads a debug APK.
+- The requested Rust source is pinned in the `upstream/` Git submodule.
+- Native Android app (minSdk 23, compile SDK 35) with four launcher sections: Play, Versions, Files and Settings.
+- First launch forces the existing CHEATLAB account page. It cannot be dismissed before login.
+- CHEATLAB's real registration/login flow remains on the website, including the ring CAPTCHA and email OTP verification.
+- The app reads the resulting session from the CHEATLAB WebView origin, validates it against `/api/auth/me`, and encrypts the app copy with Android Keystore AES-GCM.
+- Saved account state survives app restarts and device reboots. If the API is temporarily unreachable, the local encrypted session is retained rather than erased. A server-rejected session is cleared and login is requested again.
+- Logout calls the CHEATLAB logout API and clears the app's local encrypted session.
+- Versions page fetches release metadata from the Horizon GitHub releases API. It does not download desktop executables as Android packages.
+- Files page can persistently select the player's own Minecraft folder via Android Storage Access Framework.
+- Local profile directories and the touch/controller/keyboard preferences are stored in app-private storage.
+- GitHub Actions builds and uploads `horizon-mobile-debug-apk`. The latest UI/account build passed `assembleDebug` and artifact upload.
 
-## Not yet ported
+## Still not ported: required for a playable game
 
-The original launcher is a desktop GPUI application. Its screens, OS keychain integration, file pickers, window management, process launching, and desktop-specific services cannot be compiled as an Android app unchanged.
+The original launcher uses GPUI, a desktop UI framework, and its native windowing, process and keychain integrations. Those components cannot be compiled unchanged into the Android application.
 
-The game client is a separate Rust crate built around winit/wgpu. Android support still needs real implementation and verification for:
+The Rust game client is a separate winit/wgpu application. The upstream project has reusable Android input-state modules (gamepad/keypad/touch), but these modules alone do not create an Android application entry point or complete game runtime. Remaining engineering work includes:
 
-1. Android native activity entry point and lifecycle pause/resume/surface recreation.
-2. Android target compilation for the full Rust workspace and all transitive crates.
-3. Vulkan/OpenGL ES surface and device selection on Android GPUs.
-4. Storage paths, scoped storage, SAF import/export, and cache cleanup.
-5. Touch controls, virtual keyboard, focus, controller mapping, and mobile HUD.
-6. Packaging the Rust game runtime as an Android native library and connecting it to the app.
-7. Microsoft OAuth, Minecraft ownership verification, and secure session handoff for online play.
+1. A real Android NativeActivity / android_main entry point.
+2. Correct pause/resume and surface recreation handling for the winit event loop.
+3. Building the full Rust game dependency graph for Android arm64 with NDK and Vulkan/GLES.
+4. Connecting Android touch, controller and keyboard events to the game input loop.
+5. Android audio integration and device GPU compatibility testing.
+6. Storage/SAF import of user-owned Minecraft resources and safe preparation.
+7. Secure Microsoft OAuth and Minecraft ownership/session handoff for online play.
+8. Packaging the Rust runtime in the APK and end-to-end testing on physical Android devices.
 
-The current APK is an account-linked Android shell. It does not yet start the Rust game. The Play button is intentionally disabled rather than pretending the runtime is available.
+The current APK is a functional launcher shell with persistent CHEATLAB binding, release discovery and local file/profile management. It does not yet start the game; Play remains disabled until the Android runtime above exists and is tested.
 
 ## Authentication boundary
 
-CHEATLAB authentication grants access to CHEATLAB-linked launcher features only. It is independent from Microsoft/Minecraft authentication. The app does not generate or bypass Minecraft ownership, Microsoft OAuth, or server authentication.
+CHEATLAB identifies the launcher account. It does not replace Microsoft authentication or Minecraft Java Edition ownership checks. No game-license or server-authentication bypass is implemented.
