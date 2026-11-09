@@ -11,7 +11,7 @@ replacements = {
     "resValue 'string', 'application_package', 'org.angelauramc.amethyst.debug'": "resValue 'string', 'application_package', 'dev.horizon.mobile.java.debug'",
     "resValue 'string', 'storageProviderAuthorities', 'org.angelauramc.amethyst.scoped.gamefolder.debug'": "resValue 'string', 'storageProviderAuthorities', 'dev.horizon.mobile.java.scoped.gamefolder.debug'",
     "resValue 'string', 'shareProviderAuthority', 'org.angelauramc.amethyst.scoped.controlfolder.debug'": "resValue 'string', 'shareProviderAuthority', 'dev.horizon.mobile.java.scoped.controlfolder.debug'",
-    "compileSdk = 37": "compileSdk = 36",
+    "compileSdk = 37": "compileSdk {\n        version = release(36) {\n            minorApiLevel = 1\n        }\n    }",
 }
 for old, new in replacements.items():
     if old not in source:
