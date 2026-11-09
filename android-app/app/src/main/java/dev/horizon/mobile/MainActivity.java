@@ -215,16 +215,15 @@ public final class MainActivity extends Activity {
         gameCard.setPadding(dp(18), dp(18), dp(18), dp(18));
         gameCard.setOrientation(LinearLayout.VERTICAL);
         gameCard.addView(label("ИГРОВОЙ ДВИЖОК", 10, MUTED, true));
-        TextView gameState = label("Android runtime не подключён", 19, WHITE, true);
+        TextView gameState = label("Rust engine · Android arm64", 19, WHITE, true);
         gameState.setPadding(0, dp(13), 0, dp(7));
         gameCard.addView(gameState);
-        TextView gameInfo = label("Исходник клиента Rust сохранён в upstream/. Для реального запуска ещё нужна Android-точка входа, поверхность wgpu, жизненный цикл Activity и адаптированный игровой цикл.", 13, MUTED, false);
+        TextView gameInfo = label("В APK встраивается нативный игровой клиент Horizon на Rust с winit и wgpu. Для входа в мир нужны подготовленные игровые ресурсы из собственной установки Minecraft Java Edition.", 13, MUTED, false);
         gameInfo.setLineSpacing(dp(3), 1f);
         gameCard.addView(gameInfo);
 
-        Button play = button("ИГРАТЬ  ·  ПОКА НЕДОСТУПНО", false);
-        play.setEnabled(false);
-        play.setAlpha(0.48f);
+        Button play = button("ЗАПУСТИТЬ RUST-КЛИЕНТ", true);
+        play.setOnClickListener(v -> startGame());
         LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
         playParams.topMargin = dp(18);
@@ -445,6 +444,15 @@ public final class MainActivity extends Activity {
         instances.setOrientation(LinearLayout.VERTICAL);
         home.addView(instances, topMargin(10));
         renderInstances(instances);
+    }
+
+    private void startGame() {
+        try {
+            startActivity(new Intent(this, android.app.NativeActivity.class));
+        } catch (Exception error) {
+            Toast.makeText(this, "Не удалось запустить нативный Rust-клиент: " + error.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void renderInstances(LinearLayout container) {
