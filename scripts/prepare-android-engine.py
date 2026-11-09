@@ -355,7 +355,7 @@ replace_once(
 }''',
     r'''pub fn open_uri(uri: &str) {
     #[cfg(target_os = "android")]
-    horizon_client::open_android_uri(uri);
+    horizon_client::open_android_uri("horizon://launcher");
 
     // URLs need Windows' registered protocol handler, not Explorer's path
     // handling. ShellExecute also preserves the URL as one Unicode value,
@@ -368,6 +368,25 @@ replace_once(
     #[cfg(all(not(windows), not(target_os = "android")))]
     open_folder(Path::new(uri));
 }''',
+)
+
+
+# The Android game is hosted by this same APK's launcher Activity. Route the
+# missing-resources action back into the installed launcher instead of a website.
+replace_once(
+    "crates/horizon-client/src/no_resources.rs",
+    'pub const DOWNLOAD_URL: &str = "https://playhorizon.dev";',
+    'pub const DOWNLOAD_URL: &str = "horizon://launcher";',
+)
+replace_once(
+    "crates/horizon-client/src/no_resources.rs",
+    '"Download the launcher, then press Play there.",',
+    '"Return to the installed Horizon launcher and prepare your game files.",',
+)
+replace_once(
+    "crates/horizon-client/src/no_resources.rs",
+    '("Download the launcher", Action::Download),',
+    '("Return to the launcher", Action::Download),',
 )
 
 # Native Android taps arrive as Winit Touch events, not necessarily MouseInput.
