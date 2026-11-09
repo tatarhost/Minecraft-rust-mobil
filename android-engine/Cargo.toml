@@ -1,0 +1,17 @@
+[package]
+name = "horizon-android-engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "main"
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-client = { path = "../upstream/crates/horizon-client", default-features = false }
+horizon-threads = { path = "../upstream/crates/horizon-threads" }
+winit = { version = "0.30.13", features = ["android-native-activity"] }
+android_logger = "0.15"
+log = "0.4"
