@@ -380,7 +380,7 @@ replace_once(
 )
 replace_once(
     "crates/horizon-client/src/no_resources.rs",
-    '"Download the launcher, then press Play there.",',
+    '"Download the launcher at playhorizon.dev, then press Play there.",',
     '"Return to the installed Horizon launcher and prepare your game files.",',
 )
 replace_once(
