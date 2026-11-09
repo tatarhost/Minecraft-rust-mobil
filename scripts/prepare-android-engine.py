@@ -59,6 +59,31 @@ pub fn run_android(app: winit::platform::android::activity::AndroidApp) -> Resul
 '''
     lib_path.write_text(lib_text, encoding="utf-8")
 
+lib_text = lib_path.read_text(encoding="utf-8")
+if "pub fn set_android_open_uri_handler" not in lib_text:
+    lib_text += r'''
+
+/// The Android wrapper owns JNI and registers the platform URL opener here.
+#[cfg(target_os = "android")]
+static ANDROID_OPEN_URI_HANDLER: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn set_android_open_uri_handler(handler: fn(&str)) {
+    let _ = ANDROID_OPEN_URI_HANDLER.set(handler);
+}
+
+/// Open a URL using the Android wrapper's system-browser bridge.
+#[cfg(target_os = "android")]
+pub fn open_android_uri(uri: &str) {
+    if let Some(handler) = ANDROID_OPEN_URI_HANDLER.get() {
+        handler(uri);
+    } else {
+        log::error!("Horizon: Android URL handler is not registered");
+    }
+}
+'''
+    lib_path.write_text(lib_text, encoding="utf-8")
+
 game_file = "crates/horizon-client/src/game.rs"
 replace_once(
     game_file,
@@ -310,13 +335,11 @@ for rel in ("crates/horizon-client/Cargo.toml", "crates/horizon-client-render/Ca
 client_cargo = root / "crates/horizon-client/Cargo.toml"
 text = client_cargo.read_text(encoding="utf-8")
 if '[target.\'cfg(target_os = "android")\'.dependencies]' not in text:
-    text += '\n[target.\'cfg(target_os = "android")\'.dependencies]\nwinit = { version = "0.30.13", features = ["android-native-activity"] }\njni = "0.21.1"\n'
-elif 'jni = "0.21.1"' not in text:
-    text += 'jni = "0.21.1"\n'
+    text += '\n[target.\'cfg(target_os = "android")\'.dependencies]\nwinit = { version = "0.30.13", features = ["android-native-activity"] }\n'
 client_cargo.write_text(text, encoding="utf-8")
 
-# The upstream URI helper calls xdg-open on Unix. Android has no xdg-open:
-# dispatch ACTION_VIEW on the Java UI thread using the Activity supplied by winit.
+# Android browser launching belongs to the NativeActivity wrapper (which is allowed
+# to use JNI); the core game client keeps its forbid(unsafe_code) guarantee.
 replace_once(
     "crates/horizon-client/src/game/packs.rs",
     r'''pub fn open_uri(uri: &str) {
@@ -332,7 +355,7 @@ replace_once(
 }''',
     r'''pub fn open_uri(uri: &str) {
     #[cfg(target_os = "android")]
-    open_android_uri(uri);
+    horizon_client::open_android_uri(uri);
 
     // URLs need Windows' registered protocol handler, not Explorer's path
     // handling. ShellExecute also preserves the URL as one Unicode value,
@@ -344,56 +367,6 @@ replace_once(
 
     #[cfg(all(not(windows), not(target_os = "android")))]
     open_folder(Path::new(uri));
-}
-
-#[cfg(target_os = "android")]
-fn open_android_uri(uri: &str) {
-    let Some(app) = super::ANDROID_APP.get().cloned() else {
-        log::error!("Horizon: cannot open {uri}: Android Activity is not available");
-        return;
-    };
-    let uri = uri.to_owned();
-    app.clone().run_on_java_main_thread(Box::new(move || {
-        let vm = match unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) } {
-            Ok(vm) => vm,
-            Err(error) => {
-                log::error!("Horizon: cannot attach to Android JVM: {error}");
-                return;
-            }
-        };
-        let result = (|| -> jni::errors::Result<()> {
-            let mut env = vm.attach_current_thread()?;
-            use jni::objects::{JObject, JValue};
-            let raw_activity = app.activity_as_ptr() as jni::sys::jobject;
-            // AndroidApp owns this global reference; JObject is only a borrowed wrapper here.
-            let activity = unsafe { JObject::from_raw(raw_activity) };
-            let action: JObject = env.new_string("android.intent.action.VIEW")?.into();
-            let url: JObject = env.new_string(uri.as_str())?.into();
-            let parsed_uri = env
-                .call_static_method(
-                    "android/net/Uri",
-                    "parse",
-                    "(Ljava/lang/String;)Landroid/net/Uri;",
-                    &[JValue::Object(&url)],
-                )?
-                .l()?;
-            let intent = env.new_object(
-                "android/content/Intent",
-                "(Ljava/lang/String;Landroid/net/Uri;)V",
-                &[JValue::Object(&action), JValue::Object(&parsed_uri)],
-            )?;
-            env.call_method(
-                &activity,
-                "startActivity",
-                "(Landroid/content/Intent;)V",
-                &[JValue::Object(&intent)],
-            )?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            log::error!("Horizon: could not open URI {uri}: {error}");
-        }
-    }));
 }''',
 )
 
@@ -434,6 +407,8 @@ wrapper_target = root / "crates/horizon-android-engine"
 wrapper_cargo = (wrapper_source / "Cargo.toml").read_text(encoding="utf-8")
 wrapper_cargo = wrapper_cargo.replace("../upstream/crates/horizon-client", "../horizon-client")
 wrapper_cargo = wrapper_cargo.replace("../upstream/crates/horizon-threads", "../horizon-threads")
+if 'jni = "0.21.1"' not in wrapper_cargo:
+    wrapper_cargo += '\njni = "0.21.1"\n'
 (wrapper_target / "Cargo.toml").write_text(wrapper_cargo, encoding="utf-8")
 (wrapper_target / "src/lib.rs").write_text(
     (wrapper_source / "src/lib.rs").read_text(encoding="utf-8"),
