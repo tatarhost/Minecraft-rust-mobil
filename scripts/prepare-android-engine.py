@@ -142,6 +142,13 @@ if count != 2:
 else:
     game_path.write_text(game_text.replace("EventLoop::new()?.run_app(", "new_event_loop()?.run_app("), encoding="utf-8")
 
+# The game shows a native missing-resources screen before a world can start.
+# It shares the same Android event loop builder as the regular loading screen.
+missing_screen = root / "crates/horizon-client/src/game/no_resources.rs"
+missing_text = missing_screen.read_text(encoding="utf-8")
+missing_text = missing_text.replace("EventLoop::new()?.run_app(", "new_event_loop()?.run_app(")
+missing_screen.write_text(missing_text, encoding="utf-8")
+
 clipboard_file = "crates/horizon-client-input/src/clipboard.rs"
 clipboard_path = root / clipboard_file
 clipboard_text = clipboard_path.read_text(encoding="utf-8")
