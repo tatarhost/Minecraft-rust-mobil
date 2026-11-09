@@ -217,7 +217,7 @@ public final class MainActivity extends Activity {
         headline.setLineSpacing(dp(1), 1f);
         home.addView(headline);
 
-        TextView intro = label("Horizon — независимая реализация Minecraft Java Edition на Rust. Мобильный интерфейс готовится отдельно от настольного лаунчера.", 14, MUTED, false);
+        TextView intro = label("Horizon — нативная реализация Minecraft Java Edition 26.3 на Rust. Это не запуск Java/JAR: игра работает как Rust-клиент.", 14, MUTED, false);
         intro.setLineSpacing(dp(4), 1.05f);
         intro.setPadding(0, dp(12), 0, 0);
         home.addView(intro);
@@ -229,7 +229,7 @@ public final class MainActivity extends Activity {
         TextView gameState = label("Rust engine · Android arm64", 19, WHITE, true);
         gameState.setPadding(0, dp(13), 0, dp(7));
         gameCard.addView(gameState);
-        TextView gameInfo = label("В APK встраивается нативный игровой клиент Horizon на Rust с winit и wgpu. Для входа в мир нужны подготовленные игровые ресурсы из собственной установки Minecraft Java Edition.", 13, MUTED, false);
+        TextView gameInfo = label("В APK встроен нативный Rust-клиент Horizon. Для запуска нужны игровые ресурсы версии 26.3 из собственной легальной установки Minecraft Java Edition.", 13, MUTED, false);
         gameInfo.setLineSpacing(dp(3), 1f);
         gameCard.addView(gameInfo);
 
@@ -264,10 +264,10 @@ public final class MainActivity extends Activity {
         latest.setPadding(dp(18), dp(17), dp(18), dp(17));
         latest.setOrientation(LinearLayout.VERTICAL);
         latest.addView(label("ПОСЛЕДНЯЯ ВЕРСИЯ", 10, MUTED, true));
-        TextView release = label("Horizon 0.2.97", 18, WHITE, true);
+        TextView release = label("Horizon Rust · Minecraft 26.3", 18, WHITE, true);
         release.setPadding(0, dp(10), 0, dp(4));
         latest.addView(release);
-        latest.addView(label("Стабильная версия исходного проекта. В релизе нет Android-бинарника.", 13, MUTED, false));
+        latest.addView(label("Android arm64-сборка создаётся отдельно для этого проекта.", 13, MUTED, false));
         Button versions = button("Открыть версии", false);
         versions.setOnClickListener(v -> navigate("versions"));
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(
@@ -362,12 +362,12 @@ public final class MainActivity extends Activity {
                 if (shown == 0) {
                     feedStatus.setText("Список пуст. Открой страницу релизов GitHub.");
                 } else {
-                    feedStatus.setText("Показано " + shown + " релизов. Android-пакет в публичных релизах пока не опубликован.");
+                    feedStatus.setText("Показано " + shown + " релизов Rust-клиента. Это список релизов проекта, а не каталог версий Minecraft.");
                 }
             });
         });
 
-        TextView disclaimer = label("Важно: страница показывает реальные релизы Horizon. Бинарники Linux / Windows / macOS нельзя устанавливать на Android. Кнопка запуска останется недоступной, пока не появится и не будет проверена Android-сборка игрового движка.", 11, MUTED, false);
+        TextView disclaimer = label("Важно: здесь показаны релизы самого Rust-клиента, а не все версии Minecraft. Текущая ветка Horizon ориентирована на Java Edition 26.3; Android APK собирается отдельно.", 11, MUTED, false);
         disclaimer.setLineSpacing(dp(3), 1f);
         disclaimer.setPadding(dp(2), dp(18), dp(2), 0);
         home.addView(disclaimer);
@@ -532,7 +532,7 @@ public final class MainActivity extends Activity {
         home.addView(touch, topMargin(7));
         home.addView(gamepad, topMargin(3));
         home.addView(keyboard, topMargin(3));
-        TextView controlsNote = label("Переключатели сохраняются на устройстве. Экранный джойстик и игровые кнопки действий ещё нужно подключить к игровому вводу; меню лаунчера уже управляется касаниями.", 11, MUTED, false);
+        TextView controlsNote = label("Переключатели сохраняются на устройстве. Экранный джойстик и игровые кнопки ещё требуют интеграции с Rust-игрой; меню лаунчера управляется касаниями.", 11, MUTED, false);
         controlsNote.setPadding(dp(2), dp(5), dp(2), 0);
         home.addView(controlsNote);
 
