@@ -283,94 +283,120 @@ public final class MainActivity extends Activity {
     }
 
     private void addVersionsPage(int versionToken) {
-        addPageHeading("Версии", "Релизы игрового движка и заметки разработчиков.");
-        LinearLayout latestCard = card();
-        latestCard.setPadding(dp(17), dp(17), dp(17), dp(17));
-        latestCard.setOrientation(LinearLayout.VERTICAL);
-        latestCard.addView(label("ПОСЛЕДНИЙ СТАБИЛЬНЫЙ РЕЛИЗ", 10, MUTED, true));
-        TextView latestName = label("Загрузка…", 19, WHITE, true);
-        latestName.setPadding(0, dp(10), 0, dp(7));
-        latestCard.addView(latestName);
-        TextView latestDate = label("Проверяю GitHub Releases", 12, MUTED, false);
-        latestCard.addView(latestDate);
-        TextView latestNotes = label("", 13, SOFT, false);
-        latestNotes.setLineSpacing(dp(3), 1f);
-        latestNotes.setPadding(0, dp(10), 0, 0);
-        latestCard.addView(latestNotes);
-        Button openRelease = button("Открыть релиз", false);
-        openRelease.setEnabled(true);
-        openRelease.setOnClickListener(v -> openExternal("https://github.com/horizon-rust/horizon/releases"));
-        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        actionParams.topMargin = dp(13);
-        latestCard.addView(openRelease, actionParams);
-        home.addView(latestCard, topMargin(18));
+        addPageHeading("Версии Minecraft", "Официальный каталог Mojang и проверка совместимости с Rust-движком.");
+        String selected = getSharedPreferences(DATA_PREFS, MODE_PRIVATE).getString("selected_minecraft_version", "26.3");
+        LinearLayout selectedCard = card();
+        selectedCard.setPadding(dp(17), dp(17), dp(17), dp(17));
+        selectedCard.setOrientation(LinearLayout.VERTICAL);
+        selectedCard.addView(label("ВЫБРАННАЯ ВЕРСИЯ", 10, MUTED, true));
+        TextView selectedName = label(selected, 20, WHITE, true);
+        selectedName.setPadding(0, dp(9), 0, dp(5));
+        selectedCard.addView(selectedName);
+        selectedCard.addView(label("Текущий Rust-движок совместим только с Minecraft Java Edition 26.3.", 12, MUTED, false));
+        Button prepare = button("Подключить файлы Minecraft 26.3", true);
+        prepare.setOnClickListener(v -> {
+            getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("selected_minecraft_version", "26.3").apply();
+            chooseMinecraftFolder();
+        });
+        LinearLayout.LayoutParams prepareParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        prepareParams.topMargin = dp(13);
+        selectedCard.addView(prepare, prepareParams);
+        home.addView(selectedCard, topMargin(17));
 
-        addSectionLabel("ПОСЛЕДНИЕ СБОРКИ");
-        TextView feedStatus = label("Загружаю список релизов…", 13, MUTED, false);
-        feedStatus.setPadding(0, dp(8), 0, dp(8));
-        home.addView(feedStatus);
-        LinearLayout feed = new LinearLayout(this);
-        feed.setOrientation(LinearLayout.VERTICAL);
-        home.addView(feed);
+        addSectionLabel("КАТАЛОГ MOJANG");
+        TextView status = label("Загружаю официальный список версий…", 12, MUTED, false);
+        status.setPadding(0, dp(8), 0, dp(8));
+        home.addView(status);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        home.addView(list);
 
         io.execute(() -> {
-            JSONObject stable = null;
-            JSONArray releases = null;
+            JSONArray versions = null;
             String failure = null;
             try {
-                stable = fetchJsonObject(HORIZON_API + "/releases/latest");
-                releases = fetchJsonArray(HORIZON_API + "/releases?per_page=30");
+                JSONObject manifest = fetchJsonObject("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
+                versions = manifest.optJSONArray("versions");
+                if (versions == null) failure = "В ответе Mojang нет списка версий.";
             } catch (Exception error) {
-                failure = "Не удалось загрузить релизы: " + safeMessage(error);
+                failure = "Не удалось получить каталог Mojang: " + safeMessage(error);
             }
-            JSONObject finalStable = stable;
-            JSONArray finalReleases = releases;
-            String finalFailure = failure;
+            JSONArray result = versions;
+            String errorText = failure;
             runOnUiThread(() -> {
-                if (isFinishing() || !("versions".equals(activePage)) || versionToken != renderVersion) return;
-                if (finalStable == null) {
-                    latestName.setText("Версия недоступна");
-                    latestDate.setText(finalFailure == null ? "Нет ответа от GitHub." : finalFailure);
-                    feedStatus.setText("Проверь подключение к интернету.");
-                    Button retry = button("Повторить загрузку", false);
+                if (isFinishing() || !"versions".equals(activePage) || versionToken != renderVersion) return;
+                list.removeAllViews();
+                if (result == null) {
+                    status.setText(errorText == null ? "Каталог недоступен." : errorText);
+                    Button retry = button("Повторить", false);
                     retry.setOnClickListener(v -> navigate("versions"));
-                    home.addView(retry, topMargin(10));
+                    home.addView(retry, topMargin(8));
                     return;
                 }
-                String tag = finalStable.optString("tag_name", "unknown");
-                String name = finalStable.optString("name", tag);
-                latestName.setText(name);
-                latestDate.setText("Тег " + tag + " · " + finalStable.optString("published_at", "").replace("T", " ").replace("Z", " UTC"));
-                latestNotes.setText(trimText(finalStable.optString("body", "Нет описания релиза."), 900));
-                String url = finalStable.optString("html_url", "https://github.com/horizon-rust/horizon/releases");
-                openRelease.setEnabled(true);
-                openRelease.setOnClickListener(v -> openExternal(url));
-
-                feed.removeAllViews();
                 int shown = 0;
-                if (finalReleases != null) {
-                    for (int i = 0; i < finalReleases.length() && shown < 12; i++) {
-                        JSONObject item = finalReleases.optJSONObject(i);
-                        if (item == null) continue;
-                        String itemTag = item.optString("tag_name", "");
-                        if (!(itemTag.startsWith("v") || itemTag.startsWith("nightly-"))) continue;
-                        addReleaseRow(feed, item);
-                        shown++;
-                    }
+                int releases = 0;
+                int snapshots = 0;
+                for (int i = 0; i < result.length() && shown < 35; i++) {
+                    JSONObject item = result.optJSONObject(i);
+                    if (item == null) continue;
+                    String type = item.optString("type", "");
+                    if (!"release".equals(type) && !"snapshot".equals(type)) continue;
+                    if ("release".equals(type)) releases++; else snapshots++;
+                    addMinecraftVersionRow(list, item);
+                    shown++;
                 }
-                if (shown == 0) {
-                    feedStatus.setText("Список пуст. Открой страницу релизов GitHub.");
-                } else {
-                    feedStatus.setText("Показано " + shown + " релизов Rust-клиента. Это список релизов проекта, а не каталог версий Minecraft.");
-                }
+                status.setText("Загружено из Mojang: " + shown + " записей · релизы: " + releases + " · снапшоты: " + snapshots);
             });
         });
 
-        TextView disclaimer = label("Важно: здесь показаны релизы самого Rust-клиента, а не все версии Minecraft. Текущая ветка Horizon ориентирована на Java Edition 26.3; Android APK собирается отдельно.", 11, MUTED, false);
-        disclaimer.setLineSpacing(dp(3), 1f);
-        disclaimer.setPadding(dp(2), dp(18), dp(2), 0);
-        home.addView(disclaimer);
+        TextView howTo = label("Как загрузить: установи Minecraft Java Edition 26.3 через официальный лаунчер там, где у тебя есть законный доступ к игре. Перенеси папку .minecraft на телефон и выбери её выше. HORIZON пока не скачивает закрытые игровые файлы самостоятельно. Версии, отличные от 26.3, этим Rust-движком не запускаются.", 11, MUTED, false);
+        howTo.setLineSpacing(dp(3), 1f);
+        howTo.setPadding(dp(2), dp(18), dp(2), 0);
+        home.addView(howTo);
+    }
+
+    private void addMinecraftVersionRow(LinearLayout parent, JSONObject version) {
+        String id = version.optString("id", "unknown");
+        String type = version.optString("type", "unknown");
+        boolean supported = "26.3".equals(id);
+        LinearLayout row = card();
+        row.setPadding(dp(14), dp(13), dp(12), dp(13));
+        row.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = label(id, 16, WHITE, true);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(34), 1f));
+        TextView kind = label("release".equals(type) ? "РЕЛИЗ" : "SNAPSHOT", 9, MUTED, true);
+        kind.setPadding(dp(8), dp(5), dp(8), dp(5));
+        kind.setBackground(round(PANEL_2, BORDER, 14));
+        titleRow.addView(kind);
+        row.addView(titleRow);
+        String releaseTime = version.optString("releaseTime", "");
+        row.addView(label((supported ? "Поддерживается Rust-движком" : "Не поддерживается текущим Rust-движком")
+                + (releaseTime.isEmpty() ? "" : " · " + releaseTime.substring(0, Math.min(10, releaseTime.length()))),
+                11, supported ? SOFT : MUTED, false));
+        Button choose = button(supported ? "Выбрать и подготовить" : "Подробнее", false);
+        choose.setOnClickListener(v -> {
+            if (supported) {
+                getSharedPreferences(DATA_PREFS, MODE_PRIVATE).edit().putString("selected_minecraft_version", id).apply();
+                new AlertDialog.Builder(this)
+                        .setTitle("Minecraft " + id)
+                        .setMessage("Эта версия соответствует текущему Rust-движку. Выбери папку .minecraft с файлами этой версии. Автоматическая загрузка закрытых игровых файлов пока не реализована.")
+                        .setNegativeButton("Позже", null)
+                        .setPositiveButton("Выбрать папку", (dialog, which) -> chooseMinecraftFolder())
+                        .show();
+            } else {
+                new AlertDialog.Builder(this)
+                        .setTitle("Версия " + id)
+                        .setMessage("Эта версия есть в каталоге Mojang, но текущая сборка HORIZON Rust рассчитана на Minecraft Java Edition 26.3. Для запуска этой версии нужен другой совместимый игровой движок.")
+                        .setPositiveButton("Понятно", null)
+                        .show();
+            }
+        });
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(43));
+        p.topMargin = dp(9);
+        row.addView(choose, p);
+        parent.addView(row, topMargin(7));
     }
 
     private void addReleaseRow(LinearLayout parent, JSONObject release) {
@@ -465,6 +491,16 @@ public final class MainActivity extends Activity {
         if (authRequired || currentNick.isEmpty()) {
             Toast.makeText(this, "Сначала подключи аккаунт CHEATLAB.", Toast.LENGTH_LONG).show();
             openAuth();
+            return;
+        }
+        File resources = new File(getFilesDir(), "horizon/resources/horizon-resources.json");
+        if (!resources.isFile()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Игровые файлы ещё не подготовлены")
+                    .setMessage("HORIZON не будет запускать пустой Rust-клиент. Нужны подготовленные ресурсы Minecraft Java Edition 26.3. Открой «Версии» и подключи папку с файлами своей установки.")
+                    .setNegativeButton("Закрыть", null)
+                    .setPositiveButton("Открыть версии", (dialog, which) -> navigate("versions"))
+                    .show();
             return;
         }
         try {
