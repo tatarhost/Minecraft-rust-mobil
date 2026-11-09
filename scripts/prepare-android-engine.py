@@ -310,8 +310,119 @@ for rel in ("crates/horizon-client/Cargo.toml", "crates/horizon-client-render/Ca
 client_cargo = root / "crates/horizon-client/Cargo.toml"
 text = client_cargo.read_text(encoding="utf-8")
 if '[target.\'cfg(target_os = "android")\'.dependencies]' not in text:
-    text += '\n[target.\'cfg(target_os = "android")\'.dependencies]\nwinit = { version = "0.30.13", features = ["android-native-activity"] }\n'
+    text += '\n[target.\'cfg(target_os = "android")\'.dependencies]\nwinit = { version = "0.30.13", features = ["android-native-activity"] }\njni = "0.21.1"\n'
+elif 'jni = "0.21.1"' not in text:
+    text += 'jni = "0.21.1"\n'
 client_cargo.write_text(text, encoding="utf-8")
+
+# The upstream URI helper calls xdg-open on Unix. Android has no xdg-open:
+# dispatch ACTION_VIEW on the Java UI thread using the Activity supplied by winit.
+replace_once(
+    "crates/horizon-client/src/game/packs.rs",
+    r'''pub fn open_uri(uri: &str) {
+    // URLs need Windows' registered protocol handler, not Explorer's path
+    // handling. ShellExecute also preserves the URL as one Unicode value,
+    // without interpolating its query string into a command interpreter.
+    #[cfg(windows)]
+    if let Err(error) = open::that_detached(uri) {
+        log::warn!("Horizon: could not open URI {uri}: {error}");
+    }
+    #[cfg(not(windows))]
+    open_folder(Path::new(uri));
+}''',
+    r'''pub fn open_uri(uri: &str) {
+    #[cfg(target_os = "android")]
+    open_android_uri(uri);
+
+    // URLs need Windows' registered protocol handler, not Explorer's path
+    // handling. ShellExecute also preserves the URL as one Unicode value,
+    // without interpolating its query string into a command interpreter.
+    #[cfg(windows)]
+    if let Err(error) = open::that_detached(uri) {
+        log::warn!("Horizon: could not open URI {uri}: {error}");
+    }
+
+    #[cfg(all(not(windows), not(target_os = "android")))]
+    open_folder(Path::new(uri));
+}
+
+#[cfg(target_os = "android")]
+fn open_android_uri(uri: &str) {
+    let Some(app) = super::ANDROID_APP.get().cloned() else {
+        log::error!("Horizon: cannot open {uri}: Android Activity is not available");
+        return;
+    };
+    let uri = uri.to_owned();
+    app.clone().run_on_java_main_thread(Box::new(move || {
+        let vm = match unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) } {
+            Ok(vm) => vm,
+            Err(error) => {
+                log::error!("Horizon: cannot attach to Android JVM: {error}");
+                return;
+            }
+        };
+        let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            use jni::objects::{JObject, JValue};
+            let raw_activity = app.activity_as_ptr() as jni::sys::jobject;
+            // AndroidApp owns this global reference; JObject is only a borrowed wrapper here.
+            let activity = unsafe { JObject::from_raw(raw_activity) };
+            let action: JObject = env.new_string("android.intent.action.VIEW")?.into();
+            let url: JObject = env.new_string(uri.as_str())?.into();
+            let parsed_uri = env
+                .call_static_method(
+                    "android/net/Uri",
+                    "parse",
+                    "(Ljava/lang/String;)Landroid/net/Uri;",
+                    &[JValue::Object(&url)],
+                )?
+                .l()?;
+            let intent = env.new_object(
+                "android/content/Intent",
+                "(Ljava/lang/String;Landroid/net/Uri;)V",
+                &[JValue::Object(&action), JValue::Object(&parsed_uri)],
+            )?;
+            env.call_method(
+                &activity,
+                "startActivity",
+                "(Landroid/content/Intent;)V",
+                &[JValue::Object(&intent)],
+            )?;
+            Ok(())
+        });
+        if let Err(error) = result {
+            log::error!("Horizon: could not open URI {uri}: {error}");
+        }
+    }));
+}''',
+)
+
+# Native Android taps arrive as Winit Touch events, not necessarily MouseInput.
+replace_once(
+    "crates/horizon-client/src/game/no_resources.rs",
+    "use winit::event::MouseButton;",
+    "use winit::event::{MouseButton, TouchPhase};",
+)
+replace_once(
+    "crates/horizon-client/src/game/no_resources.rs",
+    r'''            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = (position.x, position.y);
+                window.request_redraw();
+            }
+            WindowEvent::MouseInput {''',
+    r'''            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = (position.x, position.y);
+                window.request_redraw();
+            }
+            WindowEvent::Touch(touch) => {
+                self.pointer = (touch.location.x, touch.location.y);
+                window.request_redraw();
+                if touch.phase == TouchPhase::Ended {
+                    self.click(event_loop);
+                }
+            }
+            WindowEvent::MouseInput {''',
+)
+
 
 # Build the NativeActivity wrapper as a member of Horizon's own workspace so
 # Cargo uses the pinned upstream lockfile and resolves all path crates together.
