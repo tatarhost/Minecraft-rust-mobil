@@ -20,7 +20,7 @@ GitHub Actions builds the Rust Android APK on pushes to `main`:
 
 The Rust native client and Android wrapper compile into the APK. The launcher can start that native client after CHEATLAB sign-in.
 
-This is **not yet a complete general-purpose Minecraft Java Edition installer**. The current APK does not automatically download and provision every Mojang version, Java runtimes, libraries and assets. The original Rust client has its own game/resource requirements; the Android port still needs the remaining resource provisioning, touch HUD/input integration and on-device gameplay testing before it can be described as fully playable.
+This is **not yet a complete general-purpose Minecraft Java Edition installer**. The launcher now reads Mojang's official version manifest and displays release/snapshot entries with an explicit compatibility check. The current Rust engine supports Minecraft Java Edition 26.3 only; other versions are shown as unsupported, not falsely offered as installable. The 26.3 action currently lets the user choose an existing Minecraft folder, but does not yet import/convert its contents into Horizon's resource format or download proprietary game files. Java runtime installation is not applicable to this native Rust engine. Resource preparation, touch HUD/input integration and on-device gameplay testing are still required before the app can be described as fully playable.
 
 CHEATLAB authentication is separate from Microsoft/Minecraft authentication and does not grant a Minecraft Java Edition license. The app does not bypass Microsoft sign-in, ownership checks or bundle proprietary Minecraft game assets.
 
