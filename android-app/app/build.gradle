@@ -10,7 +10,7 @@ android {
         applicationId 'dev.horizon.mobile'
         minSdk 23
         targetSdk 35
-        versionCode (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+        versionCode 1
         versionName '0.1.0'
     }
 
