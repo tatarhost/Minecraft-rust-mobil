@@ -116,6 +116,57 @@ struct Options {''',
 )
 
 replace_once(
+    "crates/horizon-client-input/src/keybinds.rs",
+    r'''pub fn learn_layout(event: &winit::event::KeyEvent) {
+    use winit::keyboard::{Key, PhysicalKey};
+    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+    let PhysicalKey::Code(code) = event.physical_key else {
+        return;
+    };
+    let Some(name) = key_name(code) else {
+        return;
+    };
+    let learn = horizon_client_core::key_display::learn_layout;
+    match event.key_without_modifiers() {
+        Key::Character(text) => learn(name, &text),
+        Key::Dead(Some(c)) => learn(name, c.encode_utf8(&mut [0; 4])),
+        _ => {}
+    }
+}''',
+    r'''pub fn learn_layout(event: &winit::event::KeyEvent) {
+    use winit::keyboard::PhysicalKey;
+    let PhysicalKey::Code(code) = event.physical_key else {
+        return;
+    };
+    let Some(name) = key_name(code) else {
+        return;
+    };
+    let learn = horizon_client_core::key_display::learn_layout;
+
+    #[cfg(not(target_os = "android"))]
+    {
+        use winit::keyboard::Key;
+        use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+        match event.key_without_modifiers() {
+            Key::Character(text) => learn(name, &text),
+            Key::Dead(Some(c)) => learn(name, c.encode_utf8(&mut [0; 4])),
+            _ => {}
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        use winit::keyboard::Key;
+        match &event.logical_key {
+            Key::Character(text) => learn(name, text),
+            Key::Dead(Some(c)) => learn(name, (*c).encode_utf8(&mut [0; 4])),
+            _ => {}
+        }
+    }
+}''',
+)
+
+replace_once(
     game_file,
     """        let sibling = std::env::current_exe()?
             .parent()
