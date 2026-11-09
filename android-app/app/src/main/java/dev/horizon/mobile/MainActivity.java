@@ -85,7 +85,7 @@ public final class MainActivity extends Activity {
 
     private String activePage = "play";
     private String currentNick = "";
-    private String accountMessage = "Войдите или создайте аккаунт CHEATLAB.";
+    private String accountMessage = "Подключите CHEATLAB перед запуском игры. Остальные разделы лаунчера доступны без входа.";
     private String lastSeenToken = "";
     private boolean authVisible;
     private boolean authRequired = true;
@@ -113,7 +113,8 @@ public final class MainActivity extends Activity {
         String saved = readEncrypted();
         if (saved == null || saved.isEmpty()) {
             authRequired = true;
-            openAuth();
+            accountMessage = "Подключите CHEATLAB перед запуском игры. Версии, файлы и настройки доступны сейчас.";
+            renderPage();
         } else {
             restoreSession();
         }
@@ -126,6 +127,8 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.setVerticalScrollBarEnabled(false);
         home = new LinearLayout(this);
         home.setOrientation(LinearLayout.VERTICAL);
         home.setPadding(dp(20), dp(18), dp(20), dp(104));
@@ -143,12 +146,16 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.BOTTOM);
         navParams.setMargins(dp(12), 0, dp(12), dp(10));
         root.addView(navBar, navParams);
+        navBar.setElevation(dp(12));
+        navBar.setClickable(true);
 
         authLayer = new FrameLayout(this);
         authLayer.setBackgroundColor(BG);
         authLayer.setVisibility(View.GONE);
         root.addView(authLayer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        authLayer.setClickable(false);
+        authLayer.setFocusable(true);
 
         setContentView(root);
         renderPage();
@@ -184,7 +191,11 @@ public final class MainActivity extends Activity {
         row.addView(mobile);
 
         TextView account = label(currentNick.isEmpty() ? "CHEATLAB ↗" : "@" + currentNick, 12, SOFT, true);
-        account.setPadding(dp(10), dp(8), 0, dp(8));
+        account.setPadding(dp(12), dp(8), dp(12), dp(8));
+        account.setMinHeight(dp(44));
+        account.setBackground(ripple(round(Color.TRANSPARENT, Color.TRANSPARENT, 12)));
+        account.setClickable(true);
+        account.setFocusable(true);
         account.setOnClickListener(v -> openAuth());
         row.addView(account);
         home.addView(row);
@@ -287,9 +298,10 @@ public final class MainActivity extends Activity {
         latestNotes.setPadding(0, dp(10), 0, 0);
         latestCard.addView(latestNotes);
         Button openRelease = button("Открыть релиз", false);
-        openRelease.setEnabled(false);
+        openRelease.setEnabled(true);
+        openRelease.setOnClickListener(v -> openExternal("https://github.com/horizon-rust/horizon/releases"));
         LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         actionParams.topMargin = dp(13);
         latestCard.addView(openRelease, actionParams);
         home.addView(latestCard, topMargin(18));
@@ -321,6 +333,9 @@ public final class MainActivity extends Activity {
                     latestName.setText("Версия недоступна");
                     latestDate.setText(finalFailure == null ? "Нет ответа от GitHub." : finalFailure);
                     feedStatus.setText("Проверь подключение к интернету.");
+                    Button retry = button("Повторить загрузку", false);
+                    retry.setOnClickListener(v -> navigate("versions"));
+                    home.addView(retry, topMargin(10));
                     return;
                 }
                 String tag = finalStable.optString("tag_name", "unknown");
@@ -384,7 +399,7 @@ public final class MainActivity extends Activity {
         Button details = button("Заметки релиза", false);
         details.setOnClickListener(v -> openExternal(release.optString("html_url", "https://github.com/horizon-rust/horizon/releases")));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         p.topMargin = dp(10);
         row.addView(details, p);
         parent.addView(row, topMargin(9));
@@ -447,6 +462,11 @@ public final class MainActivity extends Activity {
     }
 
     private void startGame() {
+        if (authRequired || currentNick.isEmpty()) {
+            Toast.makeText(this, "Сначала подключи аккаунт CHEATLAB.", Toast.LENGTH_LONG).show();
+            openAuth();
+            return;
+        }
         try {
             startActivity(new Intent(this, android.app.NativeActivity.class));
         } catch (Exception error) {
@@ -475,7 +495,8 @@ public final class MainActivity extends Activity {
             TextView title = label(name, 14, WHITE, true);
             row.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1f));
             Button remove = button("Удалить", false);
-            remove.setMinWidth(dp(80));
+            remove.setMinWidth(dp(88));
+            remove.setMinHeight(dp(48));
             final int index = i;
             remove.setOnClickListener(v -> confirmDeleteInstance(index, name));
             row.addView(remove);
@@ -572,8 +593,12 @@ public final class MainActivity extends Activity {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(3), dp(5), dp(3), dp(4));
-        item.setBackground(selected ? round(PANEL_2, BORDER, 14) : round(BG, Color.TRANSPARENT, 14));
+        item.setPadding(dp(3), dp(5), dp(3), dp(5));
+        item.setMinimumHeight(dp(48));
+        item.setBackground(ripple(selected ? round(PANEL_2, BORDER, 14) : round(BG, Color.TRANSPARENT, 14)));
+        item.setClickable(true);
+        item.setFocusable(true);
+        item.setContentDescription(title);
         TextView label = label(title, 11, selected ? WHITE : MUTED, selected);
         item.addView(label);
         item.setOnClickListener(v -> navigate(page));
@@ -730,9 +755,22 @@ public final class MainActivity extends Activity {
         button.setAllCaps(false);
         button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         button.setTextColor(primary ? BG : WHITE);
-        button.setPadding(dp(12), 0, dp(12), 0);
-        button.setBackground(round(primary ? WHITE : PANEL_2, primary ? WHITE : BORDER, 14));
+        button.setPadding(dp(14), 0, dp(14), 0);
+        button.setMinHeight(dp(48));
+        button.setMinWidth(dp(48));
+        button.setGravity(Gravity.CENTER);
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setStateListAnimator(null);
+        button.setBackground(ripple(round(primary ? WHITE : PANEL_2, primary ? WHITE : BORDER, 14)));
         return button;
+    }
+
+    private android.graphics.drawable.Drawable ripple(GradientDrawable content) {
+        return new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.argb(52, 255, 255, 255)),
+                content,
+                null);
     }
 
     private GradientDrawable round(int fill, int stroke, int radius) {
@@ -822,7 +860,9 @@ public final class MainActivity extends Activity {
 
     private void openAuth() {
         authVisible = true;
+        authLayer.setClickable(true);
         authLayer.setVisibility(View.VISIBLE);
+        authLayer.bringToFront();
         if (authWebView == null) {
             authWebView = new WebView(this);
             WebSettings settings = authWebView.getSettings();
@@ -867,7 +907,7 @@ public final class MainActivity extends Activity {
             bar.addView(title, new LinearLayout.LayoutParams(0, dp(42), 1f));
             Button close = button("Закрыть", false);
             close.setMinWidth(dp(82));
-            close.setVisibility(authRequired ? View.GONE : View.VISIBLE);
+            close.setVisibility(View.VISIBLE);
             close.setOnClickListener(v -> closeAuth());
             bar.addView(close);
             layer.addView(bar);
@@ -890,8 +930,8 @@ public final class MainActivity extends Activity {
     }
 
     private void closeAuth() {
-        if (authRequired) return;
         authVisible = false;
+        authLayer.setClickable(false);
         handler.removeCallbacks(authPoll);
         authLayer.setVisibility(View.GONE);
     }
