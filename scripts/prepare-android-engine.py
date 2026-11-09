@@ -143,60 +143,15 @@ else:
     game_path.write_text(game_text.replace("EventLoop::new()?.run_app(", "new_event_loop()?.run_app("), encoding="utf-8")
 
 clipboard_file = "crates/horizon-client-input/src/clipboard.rs"
-replace_once(
-    clipboard_file,
-    r'''/// The system clipboard (ClipboardManager). On Wayland, arboard uses the
-/// data-control protocol and falls back to X11 (XWayland) on compositors
-/// without it. When no system clipboard can be reached, text copied in the
-/// game can still be pasted in the game.
-#[derive(Default)]
-pub struct SystemClipboard {
-    system: Option<arboard::Clipboard>,
-    /// The text Horizon last copied (horizon-ctl status).
-    copied: Option<String>,
-}
-
-impl SystemClipboard {
-    /// The text last copied by the game.
-    pub fn copied(&self) -> Option<&str> {
-        self.copied.as_deref()
-    }
-    fn system(&mut self) -> Option<&mut arboard::Clipboard> {
-        if self.system.is_none() {
-            self.system = arboard::Clipboard::new().ok();
-        }
-        self.system.as_mut()
-    }
-}
-
-impl Clipboard for SystemClipboard {
-    fn get(&mut self) -> String {
-        let Some(system) = self.system() else {
-            return self.copied.clone().unwrap_or_default();
-        };
-        match system.get_text() {
-            Ok(text) => text,
-            Err(arboard::Error::ContentNotAvailable) => String::new(),
-            Err(_) => {
-                // A lost connection (a restarted compositor): reconnect next time.
-                self.system = None;
-                String::new()
-            }
-        }
-    }
-    fn set(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
-        }
-        self.copied = Some(text.to_owned());
-        if let Some(system) = self.system()
-            && system.set_text(text.to_owned()).is_err()
-        {
-            self.system = None;
-        }
-    }
-}''',
-    r'''/// Desktop system clipboard.
+clipboard_path = root / clipboard_file
+clipboard_text = clipboard_path.read_text(encoding="utf-8")
+start = clipboard_text.find("/// The system clipboard")
+end = clipboard_text.find("/// A clipboard in memory.", start)
+if start < 0 or end < 0:
+    if "pub struct SystemClipboard" not in clipboard_text:
+        raise SystemExit("clipboard.rs: could not locate SystemClipboard")
+else:
+    android_clipboard = r'''/// Desktop system clipboard.
 #[cfg(not(target_os = "android"))]
 #[derive(Default)]
 pub struct SystemClipboard {
@@ -245,7 +200,7 @@ impl Clipboard for SystemClipboard {
     }
 }
 
-/// Android in-game clipboard fallback. Text remains available to in-game paste.
+/// Android in-game clipboard fallback.
 #[cfg(target_os = "android")]
 #[derive(Default)]
 pub struct SystemClipboard {
@@ -269,8 +224,11 @@ impl Clipboard for SystemClipboard {
             self.copied = Some(text.to_owned());
         }
     }
-}''',
-)
+}
+
+'''
+    clipboard_text = clipboard_text[:start] + android_clipboard + clipboard_text[end:]
+    clipboard_path.write_text(clipboard_text, encoding="utf-8")
 
 input_cargo = root / "crates/horizon-client-input/Cargo.toml"
 cargo_text = input_cargo.read_text(encoding="utf-8")
