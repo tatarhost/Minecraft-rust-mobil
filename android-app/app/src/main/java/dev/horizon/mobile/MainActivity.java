@@ -532,7 +532,7 @@ public final class MainActivity extends Activity {
         home.addView(touch, topMargin(7));
         home.addView(gamepad, topMargin(3));
         home.addView(keyboard, topMargin(3));
-        TextView controlsNote = label("Настройки сохраняются на устройстве. В игровом процессе они начнут действовать после подключения Android runtime.", 11, MUTED, false);
+        TextView controlsNote = label("Переключатели сохраняются на устройстве. Экранный джойстик и игровые кнопки действий ещё нужно подключить к игровому вводу; меню лаунчера уже управляется касаниями.", 11, MUTED, false);
         controlsNote.setPadding(dp(2), dp(5), dp(2), 0);
         home.addView(controlsNote);
 
@@ -540,7 +540,7 @@ public final class MainActivity extends Activity {
         LinearLayout info = card();
         info.setPadding(dp(17), dp(16), dp(17), dp(16));
         info.setOrientation(LinearLayout.VERTICAL);
-        info.addView(label("Horizon Mobile · 0.1.0", 14, WHITE, true));
+        info.addView(label("Horizon Mobile · 0.2.0", 14, WHITE, true));
         info.addView(label("Минимум Android 6.0 · данные аккаунта защищены Android Keystore AES-GCM.", 12, MUTED, false), topMargin(6));
         info.addView(label("Сайт: cheatlab.fun", 12, MUTED, false), topMargin(7));
         home.addView(info, topMargin(11));
@@ -994,8 +994,8 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             clearEncrypted();
             authRequired = true;
-            accountMessage = "Сохранённая сессия повреждена. Подключите аккаунт заново.";
-            openAuth();
+            accountMessage = "Сохранённая сессия повреждена. Подключите CHEATLAB для запуска игры.";
+            renderPage();
         }
     }
 
